@@ -1,5 +1,19 @@
 import mongoose from "mongoose";
 
+// --- Counter Schema ---
+const counterSchema = new mongoose.Schema({
+  _id: {
+    type: String,
+    required: true,
+  },
+  seq: {
+    type: Number,
+    default: 0,
+  },
+});
+const Counter = mongoose.model("Counter", counterSchema);
+
+// --- Constants ---
 const DEPARTMENTS = [
   "Engineering",
   "Marketing",
@@ -9,11 +23,15 @@ const DEPARTMENTS = [
   "Operations",
   "Design",
 ];
-
 const STATUS_OPTIONS = ["active", "inactive", "terminated"];
 
+// --- Employee Schema ---
 const employeeSchema = new mongoose.Schema(
   {
+    employee_id: {
+      type: String,
+      unique: true, // Ensure the ID is unique
+    },
     first_name: {
       type: String,
       required: [true, "First name is required"],
@@ -29,10 +47,9 @@ const employeeSchema = new mongoose.Schema(
     email: {
       type: String,
       required: [true, "Email is required"],
-      unique: true, // Ensures email is unique in the collection
+      unique: true,
       trim: true,
       lowercase: true,
-      // Basic email format validation using a regex
       match: [
         /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
         "Please fill a valid email address",
@@ -42,10 +59,9 @@ const employeeSchema = new mongoose.Schema(
       type: String,
       required: [true, "Phone number is required"],
       trim: true,
-      // Custom validator for 10-digit phone number
       validate: {
         validator: function (v) {
-          return /^\d{10}$/.test(v); // Ensures exactly 10 digits
+          return /^\d{10}$/.test(v);
         },
         message: (props) =>
           `${props.value} is not a valid 10-digit phone number!`,
@@ -94,5 +110,30 @@ const employeeSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// --- Pre-save hook to auto-increment the employee_id ---
+employeeSchema.pre("save", async function (next) {
+  // Only generate a new ID if it's a new document
+  if (this.isNew) {
+    try {
+      // Find and update the counter for "employeeid"
+      const counter = await Counter.findByIdAndUpdate(
+        { _id: "employeeid" },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true } // Creates the counter if it doesn't exist
+      );
+
+      // Pad the sequence number with leading zeros to create the format "emp0001"
+      const paddedId = String(counter.seq).padStart(4, "0");
+      this.employee_id = `emp${paddedId}`;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  } else {
+    next();
+  }
+});
+
 const Employee = mongoose.model("Employee", employeeSchema);
 export default Employee;
