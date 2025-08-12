@@ -45,9 +45,19 @@ const CreateEmployee = async (req, res) => {
       .status(201)
       .json({ message: "Employee Added SuccessFully", data: newEmployee });
   } catch (error) {
-    console.error("Error fetching users:", error);
+    console.error("Error Creating Employee:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-export { CreateEmployee };
+const getAllEmployee = async (req, res) => {
+  try {
+    const allEmployees = await Employee.find({});
+    console.log(allEmployees,"This all Employees data")
+    res.status(200).json(allEmployees);
+  } catch (error) {
+    console.error("Error fetching Employee:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+export { CreateEmployee,getAllEmployee };
