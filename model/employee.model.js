@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 
-// --- Counter Schema ---
 const counterSchema = new mongoose.Schema({
   _id: {
     type: String,
@@ -13,7 +12,6 @@ const counterSchema = new mongoose.Schema({
 });
 const Counter = mongoose.model("Counter", counterSchema);
 
-// --- Constants ---
 const DEPARTMENTS = [
   "Engineering",
   "Marketing",
@@ -25,12 +23,11 @@ const DEPARTMENTS = [
 ];
 const STATUS_OPTIONS = ["active", "inactive", "terminated"];
 
-// --- Employee Schema ---
 const employeeSchema = new mongoose.Schema(
   {
     employee_id: {
       type: String,
-      unique: true, // Ensure the ID is unique
+      unique: true, 
     },
     first_name: {
       type: String,
@@ -42,7 +39,7 @@ const employeeSchema = new mongoose.Schema(
       type: String,
       required: [true, "Last name is required"],
       trim: true,
-      minlength: [2, "Last name must be at least 2 characters long"],
+      minlength: [1, "Last name must be at least 1 characters long"],
     },
     email: {
       type: String,
@@ -111,19 +108,19 @@ const employeeSchema = new mongoose.Schema(
   }
 );
 
-// --- Pre-save hook to auto-increment the employee_id ---
+
 employeeSchema.pre("save", async function (next) {
-  // Only generate a new ID if it's a new document
+
   if (this.isNew) {
     try {
-      // Find and update the counter for "employeeid"
+     
       const counter = await Counter.findByIdAndUpdate(
         { _id: "employeeid" },
         { $inc: { seq: 1 } },
-        { new: true, upsert: true } // Creates the counter if it doesn't exist
+        { new: true, upsert: true }
       );
 
-      // Pad the sequence number with leading zeros to create the format "emp0001"
+     
       const paddedId = String(counter.seq).padStart(4, "0");
       this.employee_id = `emp${paddedId}`;
       next();
