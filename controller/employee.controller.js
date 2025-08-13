@@ -52,7 +52,9 @@ const CreateEmployee = async (req, res) => {
 
 const getAllEmployee = async (req, res) => {
   try {
-    const allEmployees = await Employee.find({ isDeleted: false });
+    const allEmployees = await Employee.find({ isDeleted: false }).sort({
+      status: 1,
+    });
 
     res.status(200).json(allEmployees);
   } catch (error) {
