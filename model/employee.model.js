@@ -27,7 +27,7 @@ const employeeSchema = new mongoose.Schema(
   {
     employee_id: {
       type: String,
-      unique: true, 
+      unique: true,
     },
     first_name: {
       type: String,
@@ -92,6 +92,8 @@ const employeeSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    isDeleted: { type: Boolean, default: false },
+
     status: {
       type: String,
       required: [true, "Status is required"],
@@ -108,19 +110,15 @@ const employeeSchema = new mongoose.Schema(
   }
 );
 
-
 employeeSchema.pre("save", async function (next) {
-
   if (this.isNew) {
     try {
-     
       const counter = await Counter.findByIdAndUpdate(
         { _id: "employeeid" },
         { $inc: { seq: 1 } },
         { new: true, upsert: true }
       );
 
-     
       const paddedId = String(counter.seq).padStart(4, "0");
       this.employee_id = `emp${paddedId}`;
       next();
