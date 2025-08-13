@@ -53,7 +53,7 @@ const CreateEmployee = async (req, res) => {
 const getAllEmployee = async (req, res) => {
   try {
     const allEmployees = await Employee.find({ isDeleted: false });
-    console.log(allEmployees, "This all Employees data");
+
     res.status(200).json(allEmployees);
   } catch (error) {
     console.error("Error fetching Employee:", error);
