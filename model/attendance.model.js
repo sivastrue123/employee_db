@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const attendanceSchema = new mongoose.Schema({
   employeeId: {
@@ -40,10 +40,11 @@ const attendanceSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
-  reason:{
+  reason: {
     type: String,
     default: "",
-  }
+  },
 });
 
-module.exports = mongoose.model("Attendance", attendanceSchema);
+const Attendance = mongoose.model("Attendance", attendanceSchema);
+export default Attendance;

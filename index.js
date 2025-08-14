@@ -3,7 +3,7 @@ import express from "express";
 import connectDB from "./utils/DbConnector.js";
 import { URI, DATABASE_NAME } from "./config.js";
 import employeeRoutes from "./router/employeeRouter.js";
-import attendanceRoutes from "./router/attendanceRouter.js";
+import attendanceRoutes from "./router/attendance.Router.js";
 const app = express();
 const PORT = process.env.PORT || 5000;
 
