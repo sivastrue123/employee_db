@@ -1,6 +1,6 @@
 import Employee from "../model/employee.model.js";
 
-const CreateEmployee = async (req, res) => {
+const createEmployee = async (req, res) => {
   try {
     const {
       first_name,
@@ -25,7 +25,10 @@ const CreateEmployee = async (req, res) => {
     ) {
       return res.status(400).json({ message: "All Fields are required" });
     }
-
+    const existingEmail = await Employee.findOne({ email, isDeleted: false });
+    if (existingEmail) {
+      return res.status(409).json({ message: "Email already exists" });
+    }
     const newEmployee = new Employee({
       first_name,
       last_name,
@@ -142,9 +145,15 @@ const deleteEmployee = async (req, res) => {
         .json({ message: "Employee ID is required for deletion." });
     }
 
-    const deletedEmployee = await Employee.findOneAndDelete({
-      employee_id: employee_id,
-    });
+    const deletedEmployee = await Employee.findOneAndUpdate(
+      {
+        _id: employee_id,
+      },
+      {
+        $set: { isDeleted: true },
+      },
+      { new: true }
+    );
 
     if (!deletedEmployee) {
       return res.status(404).json({ message: "Employee not found." });
@@ -157,4 +166,4 @@ const deleteEmployee = async (req, res) => {
   }
 };
 
-export { CreateEmployee, getAllEmployee, editEmployee, deleteEmployee };
+export { createEmployee, getAllEmployee, editEmployee, deleteEmployee };
