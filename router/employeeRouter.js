@@ -9,6 +9,6 @@ const router = Router();
 
 router.post("/addEmployee", createEmployee);
 router.get("/getAllEmployee", getAllEmployee);
-router.patch("/editEmployee/:employee_id", editEmployee);
+router.patch("/editEmployee/:empId", editEmployee);
 router.get("/checkEmail", checkEmail);
 export default router;

@@ -97,7 +97,7 @@ const getAllEmployee = async (req, res) => {
 };
 const editEmployee = async (req, res) => {
   try {
-    const { employee_id } = req.params;
+    const { empId } = req.params;
     const {
       first_name,
       last_name,
@@ -109,9 +109,11 @@ const editEmployee = async (req, res) => {
       hourly_rate,
       profile_image,
       status,
+      employee_id,
+      role
     } = req.body;
 
-    if (!employee_id) {
+    if (!emplId) {
       return res
         .status(400)
         .json({ message: "Employee ID is required for editing." });
@@ -123,13 +125,15 @@ const editEmployee = async (req, res) => {
       !department ||
       !position ||
       !hire_date ||
-      !hourly_rate
+      !hourly_rate||
+      !employee_id ||
+      !role
     ) {
       return res.status(400).json({ message: "All Fields are required" });
     }
 
     const updatedEmployee = await Employee.findOneAndUpdate(
-      { _id: employee_id },
+      { _id: empId },
       {
         $set: {
           first_name,
@@ -142,6 +146,8 @@ const editEmployee = async (req, res) => {
           hourly_rate,
           profile_image,
           status,
+          employee_id,
+          role,
         },
       },
       { new: true, runValidators: true }
