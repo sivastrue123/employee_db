@@ -53,6 +53,31 @@ const createEmployee = async (req, res) => {
   }
 };
 
+const checkEmail = async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+    const existingEmployee = await Employee.findOne({
+      email,
+      isDeleted: false,
+      status: "active",
+    });
+    if (existingEmployee) {
+      return res.status(200).json({
+        exists: true,
+        message: "Email  exists",
+        employee_details: existingEmployee,
+      });
+    }
+    res.status(403).json({ exists: false, message: "No Access" });
+  } catch (error) {
+    console.error("Error checking email:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
 const getAllEmployee = async (req, res) => {
   try {
     const allEmployees = await Employee.find({ isDeleted: false }).sort({
@@ -166,4 +191,10 @@ const deleteEmployee = async (req, res) => {
   }
 };
 
-export { createEmployee, getAllEmployee, editEmployee, deleteEmployee };
+export {
+  createEmployee,
+  getAllEmployee,
+  editEmployee,
+  deleteEmployee,
+  checkEmail,
+};

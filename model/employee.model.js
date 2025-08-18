@@ -1,25 +1,12 @@
 import mongoose from "mongoose";
 
-const counterSchema = new mongoose.Schema({
-  _id: {
-    type: String,
-    required: true,
-  },
-  seq: {
-    type: Number,
-    default: 0,
-  },
-});
-const Counter = mongoose.model("Counter", counterSchema);
-
 const DEPARTMENTS = [
-  "Engineering",
-  "Marketing",
+  "Development",
+  "Support",
+  "AI",
   "Sales",
-  "HR",
-  "Finance",
-  "Operations",
-  "Design",
+  "Management",
+  "API",
 ];
 const STATUS_OPTIONS = ["active", "inactive", "terminated"];
 
@@ -93,7 +80,11 @@ const employeeSchema = new mongoose.Schema(
       trim: true,
     },
     isDeleted: { type: Boolean, default: false },
-
+    role: {
+      type: String,
+      enum: ["admin", "employee"],
+      default: "employee",
+    },
     status: {
       type: String,
       required: [true, "Status is required"],
@@ -109,26 +100,6 @@ const employeeSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
-
-employeeSchema.pre("save", async function (next) {
-  if (this.isNew) {
-    try {
-      const counter = await Counter.findByIdAndUpdate(
-        { _id: "employeeid" },
-        { $inc: { seq: 1 } },
-        { new: true, upsert: true }
-      );
-
-      const paddedId = String(counter.seq).padStart(4, "0");
-      this.employee_id = `emp${paddedId}`;
-      next();
-    } catch (error) {
-      next(error);
-    }
-  } else {
-    next();
-  }
-});
 
 const Employee = mongoose.model("Employee", employeeSchema);
 export default Employee;
