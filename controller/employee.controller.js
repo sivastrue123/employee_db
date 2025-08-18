@@ -13,6 +13,8 @@ const createEmployee = async (req, res) => {
       hourly_rate,
       profile_image,
       status,
+      employee_id,
+      role,
     } = req.body;
     if (
       !first_name ||
@@ -21,7 +23,8 @@ const createEmployee = async (req, res) => {
       !department ||
       !position ||
       !hire_date ||
-      !hourly_rate
+      !hourly_rate ||
+      !employee_id
     ) {
       return res.status(400).json({ message: "All Fields are required" });
     }
@@ -40,6 +43,8 @@ const createEmployee = async (req, res) => {
       hourly_rate,
       status,
       profile_image,
+      employee_id,
+      role: role || "employee",
     });
 
     await newEmployee.save();
