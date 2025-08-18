@@ -1,7 +1,8 @@
 import Attendance from "../model/attendance.model.js";
 
 const createAttendance = async (req, res) => {
-  const { employeeId, date, clockIn, clockOut, status, reason } = req.body;
+  const { employeeId, date, clockIn, clockOut, status, reason, createdBy } =
+    req.body;
   try {
     if (!employeeId || !date || !status) {
       return res
@@ -9,7 +10,10 @@ const createAttendance = async (req, res) => {
         .json({ message: "Employee, date, and status are required" });
     }
 
-    const existingAttendance = await Attendance.findOne({ employeeId, date });
+    const existingAttendance = await Attendance.findOne({
+      employeeId: employeeId,
+      date,
+    });
     if (existingAttendance) {
       return res.status(409).json({
         message: "Attendance for this employee on this date already exists",
@@ -22,7 +26,7 @@ const createAttendance = async (req, res) => {
       clockIn,
       clockOut,
       status,
-      createdBy: req.user._id,
+      createdBy,
       reason,
     });
 
@@ -33,6 +37,27 @@ const createAttendance = async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating attendance:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+const getUserAttendanceByDate = async (req, res) => {
+  const { employeeId, date } = req.query;
+  try {
+    const attendance = await Attendance.findOne({
+      employeeId,
+      date: new Date(date),
+    });
+    if (!attendance) {
+      return res.status(404).json({ message: "Attendance record not found" });
+    }
+
+    res.status(200).json({
+      message: "Attendance record fetched successfully",
+      data: attendance,
+    });
+  } catch (error) {
+    console.error("Error fetching attendance record:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
@@ -134,4 +159,5 @@ export {
   getAttendanceByEmployee,
   editAttendance,
   deleteAttendance,
+  getUserAttendanceByDate,
 };

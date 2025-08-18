@@ -5,6 +5,7 @@ import {
   getAttendanceByEmployee,
   editAttendance,
   deleteAttendance,
+  getUserAttendanceByDate,
 } from "../controller/attendance.controller.js";
 
 const router = Router();
@@ -17,5 +18,8 @@ router.get(
 );
 router.put("/editAttendance/:id", editAttendance);
 router.delete("/deleteAttendance/:id", deleteAttendance);
-
+router.get(
+  "/getUserAttendanceByDate",
+  getUserAttendanceByDate
+);
 export default router;
