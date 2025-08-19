@@ -1,78 +1,59 @@
 import Attendance from "../model/attendance.model.js";
-
+// helpers (IST)
+// helpers (same as before)
 const IST_TZ = "Asia/Kolkata";
 
 const dtfDate = new Intl.DateTimeFormat("en-CA", {
-  // en-CA => YYYY-MM-DD
   timeZone: IST_TZ,
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
 });
-const dtfTime = new Intl.DateTimeFormat("en-GB", {
-  // 24h HH:mm
+const dtfTime12 = new Intl.DateTimeFormat("en-US", {
   timeZone: IST_TZ,
-  hour: "2-digit",
+  hour: "numeric",
   minute: "2-digit",
-  hour12: false,
+  hour12: true,
 });
 
+function formatDateIST(d) {
+  return dtfDate.format(new Date(d));
+}
+function formatTimeIST12(d) {
+  if (!d) return "";
+  return dtfTime12.format(new Date(d)).replace("AM", "am").replace("PM", "pm");
+}
 function getISTParts(d) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: IST_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).formatToParts(d);
-
-  const lookup = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-  const Y = Number(lookup.year);
-  const M = Number(lookup.month);
-  const D = Number(lookup.day);
-  const h = Number(lookup.hour);
-  const m = Number(lookup.minute);
-  return { Y, M, D, h, m };
+  }).formatToParts(new Date(d));
+  const obj = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return { h: Number(obj.hour), m: Number(obj.minute) };
 }
-
-// Helper: IST "minutes since midnight"
 function minutesSinceMidnightIST(d) {
   const { h, m } = getISTParts(d);
   return h * 60 + m;
 }
-
-// Helper: format "H.MM" where minutes are two digits (e.g., 30 => ".30")
-function formatHMdotMM(totalMinutes) {
-  if (totalMinutes <= 0 || !Number.isFinite(totalMinutes)) return "0.00";
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  return `${h}.${m.toString().padStart(2, "0")}`;
+function humanizeMinutes(mins) {
+  if (!mins || mins <= 0) return "0 hrs";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (m === 0) return `${h} ${h === 1 ? "hr" : "hrs"}`;
+  if (h === 0) return `${m} mins`;
+  return `${h} ${h === 1 ? "hr" : "hrs"} ${m} mins`;
 }
-
-function formatDateIST(d) {
-  // en-CA with IST yields YYYY-MM-DD
-  return dtfDate.format(d);
-}
-
-function formatTimeIST(d) {
-  if (!d) return "";
-  return dtfTime.format(d); // "HH:mm"
-}
-
-// Business rules
-const START_MIN = 9 * 60 + 30; // 09:30 IST
-const END_MIN = 19 * 60 + 30; // 19:30 IST
-
-// Map backend status -> frontend status
 function mapStatusToFront(status, clockIn) {
-  // Treat Absent/On Leave as Absent, everything else as Present
   if (status === "Absent" || status === "On Leave") return "Absent";
-  // Fallback: if no clockIn and status unknown, consider Absent
   if (!clockIn) return "Absent";
   return "Present";
 }
+
+// 9:30 AM cutoff for late
+const START_MIN = 9 * 60 + 30;
+
 const createAttendance = async (req, res) => {
   const { employeeId, date, clockIn, clockOut, status, reason, createdBy } =
     req.body;
@@ -151,6 +132,7 @@ const getAllAttendance = async (req, res) => {
   }
 };
 
+// controller
 const getAttendanceByEmployee = async (req, res) => {
   const { employeeId } = req.params;
   try {
@@ -167,16 +149,24 @@ const getAttendanceByEmployee = async (req, res) => {
 
       const attendanceDate = formatDateIST(date);
 
+      // Late (after 09:30 IST)
       let lateMinutes = 0;
       if (clockIn) {
         const minIn = minutesSinceMidnightIST(clockIn);
-        if (minIn > START_MIN) lateMinutes = minIn - START_MIN; // late
+        if (minIn > START_MIN) lateMinutes = minIn - START_MIN;
       }
 
+      // Total working time (only if both exist)
       let otMinutes = 0;
-      if (clockOut) {
+      if (clockIn && clockOut) {
+        const minIn = minutesSinceMidnightIST(clockIn);
         const minOut = minutesSinceMidnightIST(clockOut);
-        if (minOut > END_MIN) otMinutes = minOut - END_MIN; // overtime
+
+        let worked = minOut - minIn;
+        if (worked > 600) {
+          // more than 10 hours
+          otMinutes = worked - 600;
+        }
       }
 
       const feStatus = mapStatusToFront(status, clockIn ?? null);
@@ -184,11 +174,11 @@ const getAttendanceByEmployee = async (req, res) => {
       return {
         id: String(_id),
         attendanceDate,
-        clockIn: formatTimeIST(clockIn ?? null), // "" if null
-        clockOut: formatTimeIST(clockOut ?? null), // "" if null
-        ot: formatHMdotMM(otMinutes),
+        clockIn: formatTimeIST12(clockIn ?? null),
+        clockOut: formatTimeIST12(clockOut ?? null),
+        ot: humanizeMinutes(otMinutes),
         status: feStatus,
-        ...(lateMinutes > 0 ? { late: formatHMdotMM(lateMinutes) } : {}),
+        ...(lateMinutes > 0 ? { late: humanizeMinutes(lateMinutes) } : {}),
       };
     });
 
