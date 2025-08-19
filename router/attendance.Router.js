@@ -16,8 +16,8 @@ router.get(
   "/getAttendanceByEmployee/employee/:employeeId",
   getAttendanceByEmployee
 );
-router.put("/editAttendance/:id", editAttendance);
-router.delete("/deleteAttendance/:id", deleteAttendance);
+router.put("/editAttendance/:attendanceId", editAttendance);
+router.delete("/deleteAttendance/:attendanceId", deleteAttendance);
 router.get(
   "/getUserAttendanceByDate",
   getUserAttendanceByDate
