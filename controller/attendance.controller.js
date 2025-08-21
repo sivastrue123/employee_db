@@ -1,58 +1,14 @@
 import Attendance from "../model/attendance.model.js";
-// helpers (IST)
-// helpers (same as before)
-const IST_TZ = "Asia/Kolkata";
-
-const dtfDate = new Intl.DateTimeFormat("en-CA", {
-  timeZone: IST_TZ,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-const dtfTime12 = new Intl.DateTimeFormat("en-US", {
-  timeZone: IST_TZ,
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
-
-function formatDateIST(d) {
-  return dtfDate.format(new Date(d));
-}
-function formatTimeIST12(d) {
-  if (!d) return "";
-  return dtfTime12.format(new Date(d)).replace("AM", "am").replace("PM", "pm");
-}
-function getISTParts(d) {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: IST_TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date(d));
-  const obj = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-  return { h: Number(obj.hour), m: Number(obj.minute) };
-}
-function minutesSinceMidnightIST(d) {
-  const { h, m } = getISTParts(d);
-  return h * 60 + m;
-}
-function humanizeMinutes(mins) {
-  if (!mins || mins <= 0) return "0 hrs";
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (m === 0) return `${h} ${h === 1 ? "hr" : "hrs"}`;
-  if (h === 0) return `${m} mins`;
-  return `${h} ${h === 1 ? "hr" : "hrs"} ${m} mins`;
-}
-function mapStatusToFront(status, clockIn) {
-  if (status === "Absent" || status === "On Leave") return "Absent";
-  if (!clockIn) return "Absent";
-  return "Present";
-}
-
-// 9:30 AM cutoff for late
-const START_MIN = 9 * 60 + 30;
+import {
+  formatDateIST,
+  earliestInMinutesIST,
+  START_MIN,
+  computeWorkedMinutes,
+  mapStatusToFront,
+  isSameISTDate,
+  formatTimeIST12,
+  humanizeMinutes
+} from "../utils/attendanceUtils.js";
 
 const createAttendance = async (req, res, next) => {
   const { employeeId, date, clockIn, clockOut, status, reason, createdBy } =
@@ -165,37 +121,69 @@ const getAttendanceByEmployee = async (req, res) => {
     }
 
     const result = attendanceRecords.map((row) => {
-      const { _id, date, clockIn, clockOut, status } = row;
+      const { _id, date, clockIn, clockOut, status, sessions } = row;
 
       const attendanceDate = formatDateIST(date);
 
-      // Late (after 09:30 IST)
+      // --- LATE: based on earliest session in ---
       let lateMinutes = 0;
-      if (clockIn) {
-        const minIn = minutesSinceMidnightIST(clockIn);
-        if (minIn > START_MIN) lateMinutes = minIn - START_MIN;
+      const earliestIn = earliestInMinutesIST({
+        sessions,
+        clockIn,
+        recordDate: new Date(date),
+      });
+      if (earliestIn != null && earliestIn > START_MIN) {
+        lateMinutes = earliestIn - START_MIN;
       }
 
-      // Total working time (only if both exist)
-      let otMinutes = 0;
-      if (clockIn && clockOut) {
-        const minIn = minutesSinceMidnightIST(clockIn);
-        const minOut = minutesSinceMidnightIST(clockOut);
+      // --- WORKED & OT from sessions-first, legacy fallback ---
+      const workedMinutes = computeWorkedMinutes({
+        sessions,
+        clockIn: clockIn ? new Date(clockIn) : null,
+        clockOut: clockOut ? new Date(clockOut) : null,
+        recordDate: new Date(date),
+      });
 
-        let worked = minOut - minIn;
-        if (worked > 600) {
-          // more than 10 hours
-          otMinutes = worked - 600;
+      const otMinutes = workedMinutes > 600 ? workedMinutes - 600 : 0;
+
+      // --- FE status (unchanged business logic) ---
+      // Treat as present if any valid 'in' exists in sessions OR legacy clockIn
+      const hasAnyIn =
+        (Array.isArray(sessions) && sessions.some((s) => !!s?.in)) || !!clockIn;
+      const feStatus = mapStatusToFront(
+        status,
+        hasAnyIn ? clockIn ?? true : null
+      );
+
+      // For display, use the earliest in and the last out on that date (for parity with old FE)
+      let displayClockIn = null;
+      let displayClockOut = null;
+
+      if (Array.isArray(sessions) && sessions.length > 0) {
+        const sameDaySessions = sessions
+          .filter((s) => s?.in && isSameISTDate(new Date(s.in), new Date(date)))
+          .sort((a, b) => new Date(a.in) - new Date(b.in));
+
+        if (sameDaySessions.length > 0) {
+          displayClockIn = sameDaySessions[0].in;
+          // last out among same-day sessions that has out; if none and today, may still be open
+          const outs = sameDaySessions
+            .map((s) => (s?.out ? new Date(s.out) : null))
+            .filter(Boolean)
+            .sort((a, b) => a - b);
+          displayClockOut = outs.length > 0 ? outs[outs.length - 1] : null;
         }
+      } else {
+        displayClockIn = clockIn ?? null;
+        displayClockOut = clockOut ?? null;
       }
-
-      const feStatus = mapStatusToFront(status, clockIn ?? null);
 
       return {
         id: String(_id),
         attendanceDate,
-        clockIn: formatTimeIST12(clockIn ?? null),
-        clockOut: formatTimeIST12(clockOut ?? null),
+        clockIn: formatTimeIST12(displayClockIn),
+        clockOut: formatTimeIST12(displayClockOut),
+        worked: humanizeMinutes(workedMinutes), // <-- NEW surfaced metric
         ot: humanizeMinutes(otMinutes),
         status: feStatus,
         ...(lateMinutes > 0 ? { late: humanizeMinutes(lateMinutes) } : {}),
