@@ -41,7 +41,7 @@ export const computeWorkedMinutes = ({
       }
 
       if (!outDt) continue; // ignore open sessions for non-today records
-
+     
       // Compute by IST minutes since midnight; this intentionally caps to same-day math
       const inMin = minutesSinceMidnightIST(inDt);
       const outMin = minutesSinceMidnightIST(outDt);

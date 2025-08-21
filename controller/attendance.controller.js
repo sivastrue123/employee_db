@@ -7,7 +7,7 @@ import {
   mapStatusToFront,
   isSameISTDate,
   formatTimeIST12,
-  humanizeMinutes
+  humanizeMinutes,
 } from "../utils/attendanceUtils.js";
 
 const createAttendance = async (req, res, next) => {
@@ -65,20 +65,39 @@ const getUserAttendanceByDate = async (req, res) => {
       employeeId,
       date: new Date(date),
     });
+
     if (!attendance) {
       return res.status(404).json({ message: "Attendance record not found" });
     }
 
     const attendanceObj = attendance.toObject();
 
+    // Calculate total worked minutes from sessions
+    console.log(attendanceObj);
+    let workedMinutes;
+    // Iterate through sessions and calculate worked time
+    if (attendanceObj.sessions && attendanceObj.sessions.length > 0) {
+      workedMinutes = computeWorkedMinutes({
+        sessions: attendanceObj.sessions,
+        clockIn: attendanceObj.clockIn ? new Date(attendanceObj.clockIn) : null,
+        clockOut: attendanceObj.clockOut
+          ? new Date(attendanceObj.clockOut)
+          : null,
+        recordDate: new Date(date),
+      });
+    }
+    console.log(workedMinutes);
+    // --- Calculate the total worked hours and format them ---
+
+    // Add the worked hours and minutes to the attendance object
+    attendanceObj.totalWorkedTime = humanizeMinutes(workedMinutes);
+
     // Business intelligence layer: session activity flagging
     if (attendanceObj.sessions && attendanceObj.sessions.length > 0) {
       const lastSession =
         attendanceObj.sessions[attendanceObj.sessions.length - 1];
-
       attendanceObj.isActive = lastSession.out === null;
     } else {
-      // No sessions = no active session
       attendanceObj.isActive = false;
     }
 
@@ -296,13 +315,36 @@ const editAttendance = async (req, res) => {
         { new: true }
       );
       console.log(punched);
+  
+      const attendanceObj = punched.toObject();
 
+      // Calculate total worked minutes from sessions
+      console.log(attendanceObj);
+      let workedMinutes;
+      // Iterate through sessions and calculate worked time
+      if (attendanceObj.sessions && attendanceObj.sessions.length > 0) {
+        workedMinutes = computeWorkedMinutes({
+          sessions: attendanceObj.sessions,
+          clockIn: attendanceObj.clockIn
+            ? new Date(attendanceObj.clockIn)
+            : null,
+          clockOut: attendanceObj.clockOut
+            ? new Date(attendanceObj.clockOut)
+            : null,
+          recordDate: new Date(attendanceObj.date),
+        });
+      }
+      console.log(workedMinutes);
+      // --- Calculate the total worked hours and format them ---
+
+      // Add the worked hours and minutes to the attendance object
+      attendanceObj.totalWorkedTime = humanizeMinutes(workedMinutes);
       if (!punched) {
         return res.status(500).json({ message: "Failed to create session" });
       }
       return res
         .status(200)
-        .json({ message: "Clocked in successfully", data: punched });
+        .json({ message: "Clocked in successfully", data: attendanceObj });
     }
 
     // === 3) Close last open session with provided clockOut (clockIn + clockOut) ===
