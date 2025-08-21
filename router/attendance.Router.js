@@ -10,7 +10,7 @@ import {
 
 const router = Router();
 
-router.post("/createAttendance", createAttendance);
+router.post("/createAttendance", createAttendance,editAttendance);
 router.get("/getAllAttendance", getAllAttendance);
 router.get(
   "/getAttendanceByEmployee/employee/:employeeId",

@@ -54,7 +54,7 @@ function mapStatusToFront(status, clockIn) {
 // 9:30 AM cutoff for late
 const START_MIN = 9 * 60 + 30;
 
-const createAttendance = async (req, res) => {
+const createAttendance = async (req, res, next) => {
   const { employeeId, date, clockIn, clockOut, status, reason, createdBy } =
     req.body;
   try {
@@ -68,17 +68,24 @@ const createAttendance = async (req, res) => {
       employeeId: employeeId,
       date,
     });
+
+    console.log(existingAttendance);
     if (existingAttendance) {
-      return res.status(409).json({
-        message: "Attendance for this employee on this date already exists",
-      });
+      if (!existingAttendance?.clockOut) {
+        console.log("it is going here");
+        req.params.attendanceId = existingAttendance._id;
+        return next();
+      }
+      return res
+        .status(409)
+        .json({ message: "Attendance already recorded for today" });
     }
 
     const newAttendance = new Attendance({
       employeeId,
       date,
       clockIn,
-      clockOut,
+      sessions: [{ in: clockIn }],
       status,
       createdBy,
       reason,
@@ -106,9 +113,22 @@ const getUserAttendanceByDate = async (req, res) => {
       return res.status(404).json({ message: "Attendance record not found" });
     }
 
+    const attendanceObj = attendance.toObject();
+
+    // Business intelligence layer: session activity flagging
+    if (attendanceObj.sessions && attendanceObj.sessions.length > 0) {
+      const lastSession =
+        attendanceObj.sessions[attendanceObj.sessions.length - 1];
+
+      attendanceObj.isActive = lastSession.out === null;
+    } else {
+      // No sessions = no active session
+      attendanceObj.isActive = false;
+    }
+
     res.status(200).json({
       message: "Attendance record fetched successfully",
-      data: attendance,
+      data: attendanceObj,
     });
   } catch (error) {
     console.error("Error fetching attendance record:", error);
@@ -195,35 +215,165 @@ const getAttendanceByEmployee = async (req, res) => {
 const editAttendance = async (req, res) => {
   const { attendanceId } = req.params;
   const { clockIn, clockOut, status, reason } = req.body;
+  const { LoggedOut = false, userId } = req.query;
 
   try {
     if (!attendanceId) {
       return res.status(400).json({ message: "Attendance ID is required" });
     }
-
     const attendance = await Attendance.findById(attendanceId);
     if (!attendance) {
       return res.status(404).json({ message: "Attendance record not found" });
     }
 
-    attendance.clockIn = clockIn || attendance.clockIn;
-    attendance.clockOut = clockOut || attendance.clockOut;
-    attendance.status = status || attendance.status;
-    attendance.reason = reason || attendance.reason;
-    attendance.EditedBy = req.query._id;
-    attendance.EditedAt = Date.now();
+    // Normalize dates if provided (support strings/numbers)
+    const inAt = clockIn ? new Date(clockIn) : null;
+    const outAt = clockOut ? new Date(clockOut) : null;
+    const now = new Date();
+    console.log(
+      attendanceId,
+      clockIn,
+      clockOut,
+      status,
+      reason,
+      LoggedOut,
+      userId,
+      inAt,
+      outAt
+    );
+    // Guardrails: out must be after in when both supplied
+    if (inAt && outAt && outAt < inAt) {
+      return res
+        .status(400)
+        .json({ message: "clockOut cannot be earlier than clockIn" });
+    }
 
-    await attendance.save();
-    res.status(200).json({
+    // === 1) Explicit logout flow ===
+    if (LoggedOut && outAt) {
+      console.log("kjdk");
+      const updated = await Attendance.findOneAndUpdate(
+        { _id: attendanceId },
+        {
+          $set: {
+            // legacy field for backward compat
+            clockOut: outAt,
+
+            // update the LAST open session only
+            "sessions.$[last].out": outAt,
+
+            status: status ? status : "",
+            reason: reason ? reason : "",
+            EditedBy: userId || attendance.EditedBy,
+            EditedAt: now,
+          },
+        },
+        {
+          arrayFilters: [{ "last.out": null }], // IMPORTANT: correct array filter syntax
+          new: true,
+        }
+      );
+
+      if (!updated) {
+        return res
+          .status(409)
+          .json({ message: "No open session to clock out" });
+      }
+      return res.status(200).json({ message: "Clocked out successfully" });
+    }
+
+    // === 2) Start a new session (clockIn only) ===
+    if (inAt && !outAt) {
+      console.log("dffdfd");
+      // Optional: prevent concurrent open sessions
+      const hasOpen = attendance.sessions?.some((s) => s && s.out === null);
+      if (hasOpen) {
+        return res
+          .status(409)
+          .json({ message: "An active session is already open" });
+      }
+
+      const punched = await Attendance.findOneAndUpdate(
+        { _id: attendanceId },
+        {
+          $push: { sessions: { in: inAt } },
+          $set: {
+            // legacy sync for first punch of the day
+            clockIn: attendance.clockIn || inAt,
+            status: status ? status : "",
+            reason: reason ? reason : "",
+            EditedBy: userId || attendance.EditedBy,
+            EditedAt: now,
+          },
+        },
+        { new: true }
+      );
+      console.log(punched);
+
+      if (!punched) {
+        return res.status(500).json({ message: "Failed to create session" });
+      }
+      return res
+        .status(200)
+        .json({ message: "Clocked in successfully", data: punched });
+    }
+
+    // === 3) Close last open session with provided clockOut (clockIn + clockOut) ===
+    // We intentionally ignore the provided clockIn here and just close the last open session
+    if (!inAt && outAt) {
+      console.log("jkjkj");
+
+      const hasOpen = attendance.sessions?.some((s) => s && s.out === null);
+      if (!hasOpen) {
+        return res.status(409).json({ message: "No active record found" });
+      }
+      const updated = await Attendance.findOneAndUpdate(
+        { _id: attendanceId },
+        {
+          $set: {
+            "sessions.$[last].out": outAt,
+            status: status ? status : "",
+            reason: reason ? reason : "",
+            EditedBy: userId || attendance.EditedBy,
+            EditedAt: now,
+          },
+        },
+        {
+          arrayFilters: [{ "last.out": null }],
+          new: true,
+        }
+      );
+
+      if (!updated) {
+        return res
+          .status(409)
+          .json({ message: "No open session to clock out" });
+      }
+      return res.status(200).json({ message: "Clocked out successfully" });
+    }
+
+    // === 4) Fallback: no actionable changes ===
+    return res.status(200).json({
       message: "Attendance updated successfully",
       data: attendance,
     });
   } catch (error) {
+    // Centralized exception handling
     console.error("Error updating attendance:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+
+    // Handle duplicate key in case upstream creates new docs here in the future
+    if (error?.code === 11000) {
+      return res.status(409).json({
+        message: "Duplicate attendance for employee/date",
+        details: error?.keyValue || {},
+      });
+    }
+
+    return res.status(500).json({
+      message: "Server error",
+      error: error?.message || String(error),
+    });
   }
 };
-
 const deleteAttendance = async (req, res) => {
   const { attendanceId } = req.params;
   try {
