@@ -115,7 +115,21 @@ const getUserAttendanceByDate = async (req, res) => {
 const getAllAttendance = async (req, res) => {
   try {
     // Fetch attendance records from the database, including session data and metadata
-    const attendanceRecords = await Attendance.find().sort({ date: -1 }).lean();
+
+    let { employeeIds } = req.query;
+    if (employeeIds) {
+      employeeIds = employeeIds.split(","); // Split the string by commas to create an array
+    }
+    let query = {};
+    console.log(typeof employeeIds);
+    if (employeeIds && employeeIds.length > 0) {
+      query = { employeeId: { $in: employeeIds } }; // Filter by employeeIds
+    }
+
+    // Fetch filtered attendance records from the database and sort by date in descending order
+    const attendanceRecords = await Attendance.find(query)
+      .sort({ date: -1 })
+      .lean();
 
     if (attendanceRecords.length === 0) {
       return res.status(404).json({ message: "No attendance records found" });
@@ -134,7 +148,7 @@ const getAllAttendance = async (req, res) => {
           createdBy,
           EditedBy,
           createdAt,
-          EditedAt
+          EditedAt,
         } = row;
 
         // Format the date into IST
@@ -208,24 +222,30 @@ const getAllAttendance = async (req, res) => {
           id: String(_id),
           attendanceDate,
           employeeId,
-          employeeName: `${employeeDetails.first_name??employeeDetails.first_name} ${employeeDetails.last_name??employeeDetails.last_name}`,
-          employeeDepartment: employeeDetails.department?? employeeDetails.department,
+          employeeName: `${
+            employeeDetails.first_name ?? employeeDetails.first_name
+          } ${employeeDetails.last_name ?? employeeDetails.last_name}`,
+          employeeDepartment:
+            employeeDetails.department ?? employeeDetails.department,
           clockIn: formatTimeIST12(displayClockIn),
           clockOut: formatTimeIST12(displayClockOut),
           worked: humanizeMinutes(workedMinutes), // New surfaced metric
           ot: humanizeMinutes(otMinutes),
-          createdAt:formatTimeIST12(createdAt),
-          editedAt:formatTimeIST12(EditedAt),
+          createdAt: formatTimeIST12(createdAt),
+          editedAt: formatTimeIST12(EditedAt),
           status: feStatus,
           ...(lateMinutes > 0 ? { late: humanizeMinutes(lateMinutes) } : {}),
           createdBy: {
-            name: `${createdByDetails.first_name??createdByDetails.first_name} ${createdByDetails.last_name??createdByDetails.last_name}`,
-            role: createdByDetails.role??createdByDetails.role,
-          },  
+            name: `${
+              createdByDetails.first_name ?? createdByDetails.first_name
+            } ${createdByDetails.last_name ?? createdByDetails.last_name}`,
+            role: createdByDetails.role ?? createdByDetails.role,
+          },
           editedBy: {
-            name: `${editedByDetails.first_name??editedByDetails.first_name} ${editedByDetails.last_name??editedByDetails.last_name}`,
-            role: editedByDetails.role??editedByDetails.role,
-          
+            name: `${
+              editedByDetails.first_name ?? editedByDetails.first_name
+            } ${editedByDetails.last_name ?? editedByDetails.last_name}`,
+            role: editedByDetails.role ?? editedByDetails.role,
           },
         };
       })
