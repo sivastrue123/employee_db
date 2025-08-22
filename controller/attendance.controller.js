@@ -115,15 +115,48 @@ const getUserAttendanceByDate = async (req, res) => {
 const getAllAttendance = async (req, res) => {
   try {
     // Fetch attendance records from the database, including session data and metadata
+    let { employeeIds, today, from, to } = req.query;
+    let query = {};
 
-    let { employeeIds } = req.query;
+    // Parse employeeIds if present
     if (employeeIds) {
       employeeIds = employeeIds.split(","); // Split the string by commas to create an array
+      query.employeeId = { $in: employeeIds }; // Filter by employeeIds
     }
-    let query = {};
-    console.log(typeof employeeIds);
-    if (employeeIds && employeeIds.length > 0) {
-      query = { employeeId: { $in: employeeIds } }; // Filter by employeeIds
+
+    // Handle the 'today' filter: if today is provided, filter for today's date
+    if (today) {
+      const todayDate = new Date(today);
+      todayDate.setHours(0, 0, 0, 0); // Set to start of day
+      query.date = {
+        $gte: todayDate,
+        $lt: new Date(todayDate).setHours(23, 59, 59, 999),
+      };
+    }
+console.log(to,typeof to)
+    // Handle the 'from' and 'to' filter: if 'from' and 'to' are provided, filter for that range
+    if (from && to !='undefined') {
+      console.log("This is running")
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+      fromDate.setUTCHours(0, 0, 0, 0); // Set to 00:00:00 UTC
+
+      // Ensure toDate ends at the last millisecond of the day in UTC (23:59:59.999 UTC)
+      toDate.setUTCHours(23, 59, 59, 999); //
+      query.date = {
+        ...query.date, // Keep any existing date condition (e.g., from `today`)
+        $gte: fromDate,
+        $lte: toDate,
+      };
+    }
+    if (from && to=="undefined") {
+      console.log("this data is running without to")
+      const fromDate = new Date(from);
+      fromDate.setUTCHours(0, 0, 0, 0); //
+      query.date = {
+        ...query.date, // Keep any existing date condition (e.g., from `today`)
+        $gte: fromDate,
+      };
     }
 
     // Fetch filtered attendance records from the database and sort by date in descending order
@@ -135,121 +168,115 @@ const getAllAttendance = async (req, res) => {
       return res.status(404).json({ message: "No attendance records found" });
     }
 
-    const result = await Promise.all(
-      attendanceRecords.map(async (row) => {
-        const {
-          _id,
-          date,
-          clockIn,
-          clockOut,
-          status,
-          sessions,
-          employeeId,
-          createdBy,
-          EditedBy,
-          createdAt,
-          EditedAt,
-        } = row;
+    // Fetch employee details concurrently for better performance
+    const employeeDetailsPromises = attendanceRecords.map(async (row) => {
+      const { createdBy, EditedBy, employeeId } = row;
+      const createdByDetails = Employee.findOne({ _id: createdBy }).lean();
+      const editedByDetails = Employee.findOne({ _id: EditedBy }).lean();
+      const employeeDetails = Employee.findOne({
+        employee_id: employeeId,
+      }).lean();
 
-        // Format the date into IST
-        const attendanceDate = formatDateIST(date);
+      return Promise.all([createdByDetails, editedByDetails, employeeDetails]);
+    });
 
-        // --- LATE: Calculate late minutes based on earliest session in ---
-        let lateMinutes = 0;
-        const earliestIn = earliestInMinutesIST({
-          sessions,
-          clockIn,
-          recordDate: new Date(date),
-        });
-        if (earliestIn != null && earliestIn > START_MIN) {
-          lateMinutes = earliestIn - START_MIN;
+    const employeeDetailsList = await Promise.all(employeeDetailsPromises);
+
+    const result = attendanceRecords.map((row, index) => {
+      const {
+        _id,
+        date,
+        clockIn,
+        clockOut,
+        status,
+        sessions,
+        employeeId,
+        createdBy,
+        EditedBy,
+        createdAt,
+        EditedAt,
+      } = row;
+
+      const [createdByDetails, editedByDetails, employeeDetails] =
+        employeeDetailsList[index];
+
+      // Format the date into IST
+      const attendanceDate = formatDateIST(date);
+
+      // --- LATE: Calculate late minutes based on earliest session in ---
+      let lateMinutes = 0;
+      const earliestIn = earliestInMinutesIST({
+        sessions,
+        clockIn,
+        recordDate: new Date(date),
+      });
+      if (earliestIn != null && earliestIn > START_MIN) {
+        lateMinutes = earliestIn - START_MIN;
+      }
+
+      // --- WORKED & OT: Calculate worked minutes and overtime ---
+      const workedMinutes = computeWorkedMinutes({
+        sessions,
+        clockIn: clockIn ? new Date(clockIn) : null,
+        clockOut: clockOut ? new Date(clockOut) : null,
+        recordDate: new Date(date),
+      });
+      const otMinutes = workedMinutes > 600 ? workedMinutes - 600 : 0;
+
+      // --- FE status (unchanged business logic) ---
+      const hasAnyIn =
+        (Array.isArray(sessions) && sessions.some((s) => !!s?.in)) || !!clockIn;
+      const feStatus = mapStatusToFront(
+        status,
+        hasAnyIn ? clockIn ?? true : null
+      );
+
+      // --- For display, use the earliest clock-in and last clock-out ---
+      let displayClockIn = null;
+      let displayClockOut = null;
+
+      if (Array.isArray(sessions) && sessions.length > 0) {
+        const sameDaySessions = sessions
+          .filter((s) => s?.in && isSameISTDate(new Date(s.in), new Date(date)))
+          .sort((a, b) => new Date(a.in) - new Date(b.in));
+
+        if (sameDaySessions.length > 0) {
+          displayClockIn = sameDaySessions[0].in;
+          const outs = sameDaySessions
+            .map((s) => (s?.out ? new Date(s.out) : null))
+            .filter(Boolean)
+            .sort((a, b) => a - b);
+          displayClockOut = outs.length > 0 ? outs[outs.length - 1] : null;
         }
+      } else {
+        displayClockIn = clockIn ?? null;
+        displayClockOut = clockOut ?? null;
+      }
 
-        // --- WORKED & OT: Calculate worked minutes and overtime ---
-        const workedMinutes = computeWorkedMinutes({
-          sessions,
-          clockIn: clockIn ? new Date(clockIn) : null,
-          clockOut: clockOut ? new Date(clockOut) : null,
-          recordDate: new Date(date),
-        });
-        const otMinutes = workedMinutes > 600 ? workedMinutes - 600 : 0;
-
-        // --- FE status (unchanged business logic) ---
-        const hasAnyIn =
-          (Array.isArray(sessions) && sessions.some((s) => !!s?.in)) ||
-          !!clockIn;
-        const feStatus = mapStatusToFront(
-          status,
-          hasAnyIn ? clockIn ?? true : null
-        );
-
-        // --- For display, use the earliest clock-in and last clock-out ---
-        let displayClockIn = null;
-        let displayClockOut = null;
-
-        if (Array.isArray(sessions) && sessions.length > 0) {
-          const sameDaySessions = sessions
-            .filter(
-              (s) => s?.in && isSameISTDate(new Date(s.in), new Date(date))
-            )
-            .sort((a, b) => new Date(a.in) - new Date(b.in));
-
-          if (sameDaySessions.length > 0) {
-            displayClockIn = sameDaySessions[0].in;
-            const outs = sameDaySessions
-              .map((s) => (s?.out ? new Date(s.out) : null))
-              .filter(Boolean)
-              .sort((a, b) => a - b);
-            displayClockOut = outs.length > 0 ? outs[outs.length - 1] : null;
-          }
-        } else {
-          displayClockIn = clockIn ?? null;
-          displayClockOut = clockOut ?? null;
-        }
-
-        // Fetch employee details for 'createdBy' and 'EditedBy'
-        const createdByDetails = await Employee.findOne({
-          _id: createdBy,
-        }).lean();
-        const editedByDetails = await Employee.findOne({
-          _id: EditedBy,
-        }).lean();
-        const employeeDetails = await Employee.findOne({
-          employee_id: employeeId,
-        }).lean();
-
-        return {
-          id: String(_id),
-          attendanceDate,
-          employeeId,
-          employeeName: `${
-            employeeDetails.first_name ?? employeeDetails.first_name
-          } ${employeeDetails.last_name ?? employeeDetails.last_name}`,
-          employeeDepartment:
-            employeeDetails.department ?? employeeDetails.department,
-          clockIn: formatTimeIST12(displayClockIn),
-          clockOut: formatTimeIST12(displayClockOut),
-          worked: humanizeMinutes(workedMinutes), // New surfaced metric
-          ot: humanizeMinutes(otMinutes),
-          createdAt: formatTimeIST12(createdAt),
-          editedAt: formatTimeIST12(EditedAt),
-          status: feStatus,
-          ...(lateMinutes > 0 ? { late: humanizeMinutes(lateMinutes) } : {}),
-          createdBy: {
-            name: `${
-              createdByDetails.first_name ?? createdByDetails.first_name
-            } ${createdByDetails.last_name ?? createdByDetails.last_name}`,
-            role: createdByDetails.role ?? createdByDetails.role,
-          },
-          editedBy: {
-            name: `${
-              editedByDetails.first_name ?? editedByDetails.first_name
-            } ${editedByDetails.last_name ?? editedByDetails.last_name}`,
-            role: editedByDetails.role ?? editedByDetails.role,
-          },
-        };
-      })
-    );
+      return {
+        id: String(_id),
+        attendanceDate,
+        employeeId,
+        employeeName: `${employeeDetails.first_name} ${employeeDetails.last_name}`,
+        employeeDepartment: employeeDetails.department ?? "N/A",
+        clockIn: formatTimeIST12(displayClockIn),
+        clockOut: formatTimeIST12(displayClockOut),
+        worked: humanizeMinutes(workedMinutes), // New surfaced metric
+        ot: humanizeMinutes(otMinutes),
+        createdAt: formatTimeIST12(createdAt),
+        editedAt: formatTimeIST12(EditedAt),
+        status: feStatus,
+        ...(lateMinutes > 0 ? { late: humanizeMinutes(lateMinutes) } : {}),
+        createdBy: {
+          name: `${createdByDetails.first_name} ${createdByDetails.last_name}`,
+          role: createdByDetails.role ?? "N/A",
+        },
+        editedBy: {
+          name: `${editedByDetails.first_name} ${editedByDetails.last_name}`,
+          role: editedByDetails.role ?? "N/A",
+        },
+      };
+    });
 
     res.status(200).json({
       message: "All attendance records fetched successfully",
