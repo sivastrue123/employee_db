@@ -1,4 +1,5 @@
 import Attendance from "../model/attendance.model.js";
+import Employee from "../model/employee.model.js";
 import {
   formatDateIST,
   earliestInMinutesIST,
@@ -113,13 +114,126 @@ const getUserAttendanceByDate = async (req, res) => {
 
 const getAllAttendance = async (req, res) => {
   try {
-    const allAttendance = await Attendance.find()
-      .populate("createdBy", "first_name last_name")
-      .sort({ date: -1 });
+    // Fetch attendance records from the database, including session data and metadata
+    const attendanceRecords = await Attendance.find().sort({ date: -1 }).lean();
+
+    if (attendanceRecords.length === 0) {
+      return res.status(404).json({ message: "No attendance records found" });
+    }
+
+    const result = await Promise.all(
+      attendanceRecords.map(async (row) => {
+        const {
+          _id,
+          date,
+          clockIn,
+          clockOut,
+          status,
+          sessions,
+          employeeId,
+          createdBy,
+          EditedBy,
+          createdAt,
+          EditedAt
+        } = row;
+
+        // Format the date into IST
+        const attendanceDate = formatDateIST(date);
+
+        // --- LATE: Calculate late minutes based on earliest session in ---
+        let lateMinutes = 0;
+        const earliestIn = earliestInMinutesIST({
+          sessions,
+          clockIn,
+          recordDate: new Date(date),
+        });
+        if (earliestIn != null && earliestIn > START_MIN) {
+          lateMinutes = earliestIn - START_MIN;
+        }
+
+        // --- WORKED & OT: Calculate worked minutes and overtime ---
+        const workedMinutes = computeWorkedMinutes({
+          sessions,
+          clockIn: clockIn ? new Date(clockIn) : null,
+          clockOut: clockOut ? new Date(clockOut) : null,
+          recordDate: new Date(date),
+        });
+        const otMinutes = workedMinutes > 600 ? workedMinutes - 600 : 0;
+
+        // --- FE status (unchanged business logic) ---
+        const hasAnyIn =
+          (Array.isArray(sessions) && sessions.some((s) => !!s?.in)) ||
+          !!clockIn;
+        const feStatus = mapStatusToFront(
+          status,
+          hasAnyIn ? clockIn ?? true : null
+        );
+
+        // --- For display, use the earliest clock-in and last clock-out ---
+        let displayClockIn = null;
+        let displayClockOut = null;
+
+        if (Array.isArray(sessions) && sessions.length > 0) {
+          const sameDaySessions = sessions
+            .filter(
+              (s) => s?.in && isSameISTDate(new Date(s.in), new Date(date))
+            )
+            .sort((a, b) => new Date(a.in) - new Date(b.in));
+
+          if (sameDaySessions.length > 0) {
+            displayClockIn = sameDaySessions[0].in;
+            const outs = sameDaySessions
+              .map((s) => (s?.out ? new Date(s.out) : null))
+              .filter(Boolean)
+              .sort((a, b) => a - b);
+            displayClockOut = outs.length > 0 ? outs[outs.length - 1] : null;
+          }
+        } else {
+          displayClockIn = clockIn ?? null;
+          displayClockOut = clockOut ?? null;
+        }
+
+        // Fetch employee details for 'createdBy' and 'EditedBy'
+        const createdByDetails = await Employee.findOne({
+          _id: createdBy,
+        }).lean();
+        const editedByDetails = await Employee.findOne({
+          _id: EditedBy,
+        }).lean();
+        const employeeDetails = await Employee.findOne({
+          employee_id: employeeId,
+        }).lean();
+
+        return {
+          id: String(_id),
+          attendanceDate,
+          employeeId,
+          employeeName: `${employeeDetails.first_name??employeeDetails.first_name} ${employeeDetails.last_name??employeeDetails.last_name}`,
+          employeeDepartment: employeeDetails.department?? employeeDetails.department,
+          clockIn: formatTimeIST12(displayClockIn),
+          clockOut: formatTimeIST12(displayClockOut),
+          worked: humanizeMinutes(workedMinutes), // New surfaced metric
+          ot: humanizeMinutes(otMinutes),
+          createdAt:formatTimeIST12(createdAt),
+          editedAt:formatTimeIST12(EditedAt),
+          status: feStatus,
+          ...(lateMinutes > 0 ? { late: humanizeMinutes(lateMinutes) } : {}),
+          createdBy: {
+            name: `${createdByDetails.first_name??createdByDetails.first_name} ${createdByDetails.last_name??createdByDetails.last_name}`,
+            role: createdByDetails.role??createdByDetails.role,
+          },  
+          editedBy: {
+            name: `${editedByDetails.first_name??editedByDetails.first_name} ${editedByDetails.last_name??editedByDetails.last_name}`,
+            role: editedByDetails.role??editedByDetails.role,
+          
+          },
+        };
+      })
+    );
 
     res.status(200).json({
       message: "All attendance records fetched successfully",
-      data: allAttendance,
+      data: result,
     });
   } catch (error) {
     console.error("Error fetching attendance records:", error);
@@ -315,7 +429,7 @@ const editAttendance = async (req, res) => {
         { new: true }
       );
       console.log(punched);
-  
+
       const attendanceObj = punched.toObject();
 
       // Calculate total worked minutes from sessions
