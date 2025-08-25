@@ -11,6 +11,9 @@ app.use(express.json());
 
 app.use("/api/employee", employeeRoutes);
 app.use("/api/attendance", attendanceRoutes);
+app.use("/", (req,res) => {
+  return res.send(200);
+});
 const startingServer = async () => {
   try {
     if (URI && DATABASE_NAME) {
