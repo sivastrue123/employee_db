@@ -112,77 +112,120 @@ const getUserAttendanceByDate = async (req, res) => {
   }
 };
 
+// Assumes Attendance, Employee, and your helpers (formatDateIST, earliestInMinutesIST,
+// START_MIN, computeWorkedMinutes, mapStatusToFront, isSameISTDate, formatTimeIST12,
+// humanizeMinutes) are already imported/in-scope.
 const getAllAttendance = async (req, res) => {
   try {
-    // Fetch attendance records from the database, including session data and metadata
-    let { employeeIds, today, from, to } = req.query;
-    let query = {};
+    let { employeeIds, today, from, to, page, pageSize, search } = req.query;
 
-    // Parse employeeIds if present
-    if (employeeIds) {
-      employeeIds = employeeIds.split(","); // Split the string by commas to create an array
-      query.employeeId = { $in: employeeIds }; // Filter by employeeIds
+    // ---------- Normalize & validate ----------
+    const isProvided = (v) =>
+      v !== undefined &&
+      v !== null &&
+      v !== "" &&
+      v !== "undefined" &&
+      v !== "null";
+
+    const pageNum = Math.max(1, parseInt(page ?? "1", 10) || 1);
+    const size = Math.min(
+      100,
+      Math.max(1, parseInt(pageSize ?? "10", 10) || 10)
+    ); // cap defensively
+
+    const parseDate = (val) => {
+      if (!isProvided(val)) return null;
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? null : d;
+    };
+
+    // Single-day window
+    const buildDayWindow = (isoLike) => {
+      const start = parseDate(isoLike);
+      if (!start) return null;
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1); // next day
+      return { $gte: start, $lt: end };
+    };
+
+    // Range window (inclusive of 'to' day)
+    const buildRangeWindow = (fromIso, toIso) => {
+      const start = parseDate(fromIso);
+      const end = parseDate(toIso);
+      if (!start && !end) return null;
+
+      if (start && end) {
+        const endPlus = new Date(end);
+        endPlus.setDate(endPlus.getDate() + 1); // include entire 'to' day
+        return { $gte: start, $lt: endPlus };
+      }
+      if (start && !end) return { $gte: start };
+      if (!start && end) {
+        const endPlus = new Date(end);
+        endPlus.setDate(endPlus.getDate() + 1);
+        return { $lt: endPlus };
+      }
+      return null;
+    };
+
+    // ---------- Build query ----------
+    const query = {};
+
+    // Employees
+    let employeeIdArray = [];
+    if (isProvided(employeeIds)) {
+      employeeIdArray = String(employeeIds)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (employeeIdArray.length) query.employeeId = { $in: employeeIdArray };
     }
 
-    // Handle the 'today' filter: if today is provided, filter for today's date
-    if (today) {
-      const todayDate = new Date(today);
-      todayDate.setHours(0, 0, 0, 0); // Set to start of day
-      query.date = {
-        $gte: todayDate,
-        $lt: new Date(todayDate).setHours(23, 59, 59, 999),
-      };
+    // Date logic: range takes precedence, then today
+    let dateFilter = null;
+    if (isProvided(from) || isProvided(to)) {
+      dateFilter = buildRangeWindow(from, to);
+    } else if (isProvided(today)) {
+      dateFilter = buildDayWindow(today);
     }
-    console.log(to, typeof to);
-    // Handle the 'from' and 'to' filter: if 'from' and 'to' are provided, filter for that range
-    if (from && to != undefined) {
-      console.log("This is running");
-      const fromDate = new Date(from);
-      const toDate = new Date(to);
-      fromDate.setUTCHours(0, 0, 0, 0); // Set to 00:00:00 UTC
+    if (dateFilter) query.date = dateFilter;
 
-      // Ensure toDate ends at the last millisecond of the day in UTC (23:59:59.999 UTC)
-      toDate.setUTCHours(23, 59, 59, 999); //
-      query.date = {
-        ...query.date, // Keep any existing date condition (e.g., from `today`)
-        $gte: fromDate,
-        $lte: toDate,
-      };
-    }
-    if (from && to == "undefined") {
-      console.log("this data is running without to");
-      const fromDate = new Date(from);
-      fromDate.setUTCHours(0, 0, 0, 0); //
-      query.date = {
-        ...query.date, // Keep any existing date condition (e.g., from `today`)
-        $gte: fromDate,
-      };
-    }
-
-    // Fetch filtered attendance records from the database and sort by date in descending order
-    const attendanceRecords = await Attendance.find(query)
+    // ---------- Data fetch: paged with look-ahead ----------
+    const skip = (pageNum - 1) * size;
+    const raw = await Attendance.find(query)
       .sort({ date: -1 })
+      .skip(skip)
+      .limit(size + 1) // look-ahead
       .lean();
 
-    if (attendanceRecords.length === 0) {
-      return res.status(404).json({ message: "No attendance records found" });
+    const hasMore = raw.length > size;
+    const pageDocs = hasMore ? raw.slice(0, size) : raw;
+
+    if (pageNum === 1 && pageDocs.length === 0) {
+      return res
+        .status(404)
+        .json({
+          message: "No attendance records found",
+          data: [],
+          monthSummary: null,
+        });
     }
 
-    // Fetch employee details concurrently for better performance
-    const employeeDetailsPromises = attendanceRecords.map(async (row) => {
+    // ---------- Join employee & metadata (parallelized) ----------
+    const employeeDetailsPromises = pageDocs.map(async (row) => {
       const { createdBy, EditedBy, employeeId } = row;
       const createdByDetails = Employee.findOne({ _id: createdBy }).lean();
       const editedByDetails = Employee.findOne({ _id: EditedBy }).lean();
       const employeeDetails = Employee.findOne({
         employee_id: employeeId,
       }).lean();
-
       return Promise.all([createdByDetails, editedByDetails, employeeDetails]);
     });
 
     const employeeDetailsList = await Promise.all(employeeDetailsPromises);
 
-    const result = attendanceRecords.map((row, index) => {
+    // ---------- Map to FE contract ----------
+    const result = pageDocs.map((row, index) => {
       const {
         _id,
         date,
@@ -191,19 +234,16 @@ const getAllAttendance = async (req, res) => {
         status,
         sessions,
         employeeId,
-        createdBy,
-        EditedBy,
         createdAt,
         EditedAt,
       } = row;
 
       const [createdByDetails, editedByDetails, employeeDetails] =
-        employeeDetailsList[index];
+        employeeDetailsList[index] || [];
 
-      // Format the date into IST
       const attendanceDate = formatDateIST(date);
 
-      // --- LATE: Calculate late minutes based on earliest session in ---
+      // LATE
       let lateMinutes = 0;
       const earliestIn = earliestInMinutesIST({
         sessions,
@@ -214,7 +254,7 @@ const getAllAttendance = async (req, res) => {
         lateMinutes = earliestIn - START_MIN;
       }
 
-      // --- WORKED & OT: Calculate worked minutes and overtime ---
+      // WORKED & OT
       const workedMinutes = computeWorkedMinutes({
         sessions,
         clockIn: clockIn ? new Date(clockIn) : null,
@@ -223,7 +263,7 @@ const getAllAttendance = async (req, res) => {
       });
       const otMinutes = workedMinutes > 600 ? workedMinutes - 600 : 0;
 
-      // --- FE status (unchanged business logic) ---
+      // FE status
       const hasAnyIn =
         (Array.isArray(sessions) && sessions.some((s) => !!s?.in)) || !!clockIn;
       const feStatus = mapStatusToFront(
@@ -231,15 +271,13 @@ const getAllAttendance = async (req, res) => {
         hasAnyIn ? clockIn ?? true : null
       );
 
-      // --- For display, use the earliest clock-in and last clock-out ---
+      // Display in/out
       let displayClockIn = null;
       let displayClockOut = null;
-
       if (Array.isArray(sessions) && sessions.length > 0) {
         const sameDaySessions = sessions
           .filter((s) => s?.in && isSameISTDate(new Date(s.in), new Date(date)))
           .sort((a, b) => new Date(a.in) - new Date(b.in));
-
         if (sameDaySessions.length > 0) {
           displayClockIn = sameDaySessions[0].in;
           const outs = sameDaySessions
@@ -253,40 +291,124 @@ const getAllAttendance = async (req, res) => {
         displayClockOut = clockOut ?? null;
       }
 
+      const empFirst = employeeDetails?.first_name ?? "";
+      const empLast = employeeDetails?.last_name ?? "";
+      const creatorFirst = createdByDetails?.first_name ?? "";
+      const creatorLast = createdByDetails?.last_name ?? "";
+      const editorFirst = editedByDetails?.first_name ?? "";
+      const editorLast = editedByDetails?.last_name ?? "";
+
       return {
         id: String(_id),
-        attendanceDate,
+        attendanceDate, // string from formatDateIST
         employeeId,
-        employeeName: `${employeeDetails.first_name} ${employeeDetails.last_name}`,
-        employeeDepartment: employeeDetails.department ?? "N/A",
+        employeeName: `${empFirst} ${empLast}`.trim() || null,
+        employeeDepartment: employeeDetails?.department ?? "N/A",
         clockIn: formatTimeIST12(displayClockIn),
         clockOut: formatTimeIST12(displayClockOut),
-        worked: humanizeMinutes(workedMinutes), // New surfaced metric
+        worked: humanizeMinutes(workedMinutes),
         ot: humanizeMinutes(otMinutes),
         createdAt: formatTimeIST12(createdAt),
         editedAt: formatTimeIST12(EditedAt),
         status: feStatus,
         ...(lateMinutes > 0 ? { late: humanizeMinutes(lateMinutes) } : {}),
         createdBy: {
-          name: `${createdByDetails.first_name} ${createdByDetails.last_name}`,
-          role: createdByDetails.role ?? "N/A",
+          name: `${creatorFirst} ${creatorLast}`.trim() || undefined,
+          role: createdByDetails?.role ?? "N/A",
         },
         editedBy: {
-          name: `${editedByDetails?.first_name ?? ""} ${
-            editedByDetails?.last_name ?? ""
-          }`,
+          name: `${editorFirst} ${editorLast}`.trim() || undefined,
           role: editedByDetails?.role ?? "N/A",
         },
       };
     });
 
-    res.status(200).json({
-      message: "All attendance records fetched successfully",
-      data: result,
+    // ---------- 🔎 Soft search across the mapped rows ----------
+    let filtered = result;
+    if (isProvided(search)) {
+      const q = String(search).trim().toLowerCase();
+
+      // Try to parse search as a date; if valid, derive a normalized token
+      const parsed = parseDate(search);
+      const dateNeedle = parsed ? formatDateIST(parsed) : null; // same formatter as rows
+
+      const pick = (v) => (v == null ? "" : String(v)).toLowerCase();
+
+      filtered = result.filter((r) => {
+        // candidate fields
+        const haystacks = [
+          pick(r.attendanceDate),
+          pick(r.status),
+          pick(r.employeeName),
+          pick(r.createdBy?.name),
+          pick(r.editedBy?.name),
+        ];
+
+        // generic text match
+        if (haystacks.some((h) => h.includes(q))) return true;
+
+        // date-aware match (e.g., user types 2025-08-25, Aug 25, etc.)
+        if (dateNeedle && pick(r.attendanceDate).includes(pick(dateNeedle))) {
+          return true;
+        }
+
+        return false;
+      });
+    }
+
+    // ---------- KPI: this-month Present/Absent ----------
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const nextMonthStart = new Date(monthStart);
+    nextMonthStart.setMonth(monthStart.getMonth() + 1);
+
+    const monthQuery = {
+      date: { $gte: monthStart, $lt: nextMonthStart },
+      ...(employeeIdArray.length
+        ? { employeeId: { $in: employeeIdArray } }
+        : {}),
+    };
+
+    const monthDocs = await Attendance.find(monthQuery)
+      .select({ status: 1, sessions: 1, clockIn: 1, date: 1 })
+      .lean();
+
+    let present = 0;
+    let absent = 0;
+    for (const doc of monthDocs) {
+      const hasAnyIn =
+        (Array.isArray(doc.sessions) && doc.sessions.some((s) => !!s?.in)) ||
+        !!doc.clockIn;
+      const feStatus = mapStatusToFront(
+        doc.status,
+        hasAnyIn ? doc.clockIn ?? true : null
+      );
+      if (feStatus === "Present") present += 1;
+      else if (feStatus === "Absent") absent += 1;
+    }
+
+    const monthSummary = {
+      from: monthStart.toISOString(),
+      to: nextMonthStart.toISOString(),
+      present,
+      absent,
+    };
+
+    // ---------- Response ----------
+    return res.status(200).json({
+      message: "Attendance records fetched successfully",
+      data: filtered, // 👈 return the searched slice
+      page: pageNum,
+      pageSize: size,
+      hasMore, // unchanged; FE currently uses length===PAGE_SIZE heuristic
+      monthSummary,
     });
   } catch (error) {
     console.error("Error fetching attendance records:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    return res
+      .status(500)
+      .json({ message: "Server error", error: error.message });
   }
 };
 
