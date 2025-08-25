@@ -133,10 +133,10 @@ const getAllAttendance = async (req, res) => {
         $lt: new Date(todayDate).setHours(23, 59, 59, 999),
       };
     }
-console.log(to,typeof to)
+    console.log(to, typeof to);
     // Handle the 'from' and 'to' filter: if 'from' and 'to' are provided, filter for that range
-    if (from && to !='undefined') {
-      console.log("This is running")
+    if (from && to != "undefined") {
+      console.log("This is running");
       const fromDate = new Date(from);
       const toDate = new Date(to);
       fromDate.setUTCHours(0, 0, 0, 0); // Set to 00:00:00 UTC
@@ -149,8 +149,8 @@ console.log(to,typeof to)
         $lte: toDate,
       };
     }
-    if (from && to=="undefined") {
-      console.log("this data is running without to")
+    if (from && to == "undefined") {
+      console.log("this data is running without to");
       const fromDate = new Date(from);
       fromDate.setUTCHours(0, 0, 0, 0); //
       query.date = {
@@ -272,8 +272,10 @@ console.log(to,typeof to)
           role: createdByDetails.role ?? "N/A",
         },
         editedBy: {
-          name: `${editedByDetails.first_name} ${editedByDetails.last_name}`,
-          role: editedByDetails.role ?? "N/A",
+          name: `${editedByDetails?.first_name ?? ""} ${
+            editedByDetails?.last_name ?? ""
+          }`,
+          role: editedByDetails?.role ?? "N/A",
         },
       };
     });
