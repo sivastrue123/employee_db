@@ -28,9 +28,16 @@ const createEmployee = async (req, res) => {
     ) {
       return res.status(400).json({ message: "All Fields are required" });
     }
-    const existingEmail = await Employee.findOne({ email, isDeleted: false });
-    if (existingEmail) {
-      return res.status(409).json({ message: "Email already exists" });
+    const existingEmployee = await Employee.findOne({
+      employee_id,
+      isDeleted: false,
+    });
+    if (existingEmployee) {
+      return res.status(409).json({ message: "Employe id  already in use" });
+    }
+    console.log(existingEmployee, String(employee_id));
+    if (existingEmployee?.email === String(email)) {
+      return res.status(409).json({ message: "email Id already exists" });
     }
     const newEmployee = new Employee({
       first_name,
@@ -110,7 +117,7 @@ const editEmployee = async (req, res) => {
       profile_image,
       status,
       employee_id,
-      role
+      role,
     } = req.body;
 
     if (!emplId) {
@@ -125,7 +132,7 @@ const editEmployee = async (req, res) => {
       !department ||
       !position ||
       !hire_date ||
-      !hourly_rate||
+      !hourly_rate ||
       !employee_id ||
       !role
     ) {
