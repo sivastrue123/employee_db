@@ -6,6 +6,7 @@ import {
   editAttendance,
   deleteAttendance,
   getUserAttendanceByDate,
+  createBulkAttendanceAction,
 } from "../controller/attendance.controller.js";
 
 const router = Router();
@@ -22,4 +23,5 @@ router.get(
   "/getUserAttendanceByDate",
   getUserAttendanceByDate
 );
+router.post("/MoreActions/:userId",createBulkAttendanceAction)
 export default router;

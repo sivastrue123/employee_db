@@ -589,6 +589,112 @@ const deleteAttendance = async (req, res) => {
   }
 };
 
+const createBulkAttendanceAction = async (req, res) => {
+  const { employeeIds, reason, status, date } = req.body.payload;
+  const { userId } = req.params;
+  try {
+    console.log(req.body);
+    if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
+      console.log(employeeIds, typeof employeeIds);
+      return res
+        .status(400)
+        .json({ message: "employeeIds must be a non-empty array." });
+    }
+    if (!userId) {
+      return res.status(400).json({ message: "Invalid or missing userId." });
+    }
+    function toStartOfDay(dateLike) {
+      const d = dateLike ? new Date(dateLike) : new Date();
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+    const day = toStartOfDay(date);
+    const uniqueIds = Array.from(
+      new Set(
+        employeeIds
+          .filter((x) => typeof x === "string")
+          .map((x) => x.trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (uniqueIds.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "No valid employeeIds provided." });
+    }
+
+    const docs = uniqueIds.map((empId) => ({
+      employeeId: empId,
+      date: date,
+      status: status,
+      reason: (reason || "").trim(),
+      createdBy: userId,
+
+      // Legacy compatibility / defaults
+      clockIn: null,
+      clockOut: null,
+
+      // New sessions array supported by schema
+      sessions: [],
+    }));
+
+    const inserted = await Attendance.insertMany(docs, {
+      ordered: false, // insert as many as possible
+      rawResult: true, // to introspect write errors
+    });
+    const requested = uniqueIds.length;
+    const createdCount = inserted.insertedCount ?? inserted.length ?? 0;
+
+    // If rawResult is present, extract duplicate/conflict telemetry
+    const writeErrors =
+      inserted?.mongoose?.result?.writeErrors ||
+      inserted?.result?.result?.writeErrors ||
+      [];
+    const conflicts =
+      writeErrors
+        ?.filter((e) => e.code === 11000)
+        .map((e) => {
+          // Try several shapes to pull the conflicting employeeId/date back
+          const op = e.op || e.err?.op || e.getOperation?.() || {};
+          return {
+            employeeId: op.employeeId || null,
+            date: op.date || day,
+            reason: "Duplicate (employeeId, date) violates unique index",
+          };
+        }) || [];
+    return res.status(createdCount > 0 ? 201 : 409).json({
+      message:
+        createdCount > 0
+          ? "Bulk attendance created with partial success."
+          : "No documents created; all conflicted with existing records.",
+      metrics: {
+        requested,
+        created: createdCount,
+        conflicts: conflicts.length,
+      },
+      details: {
+        // IDs that were requested; useful if the client needs to diff
+        requestedEmployeeIds: uniqueIds,
+        conflictItems: conflicts,
+      },
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({
+        message:
+          "One or more attendance records already exist for the provided (employeeId, date).",
+        error: error.message,
+      });
+    }
+
+    console.error("Error creating attendance (bulk insert):", error);
+    return res
+      .status(500)
+      .json({ message: "Server error", error: error.message });
+  }
+};
+
 export {
   createAttendance,
   getAllAttendance,
@@ -596,4 +702,5 @@ export {
   editAttendance,
   deleteAttendance,
   getUserAttendanceByDate,
+  createBulkAttendanceAction,
 };
