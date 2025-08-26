@@ -202,13 +202,11 @@ const getAllAttendance = async (req, res) => {
     const pageDocs = hasMore ? raw.slice(0, size) : raw;
 
     if (pageNum === 1 && pageDocs.length === 0) {
-      return res
-        .status(404)
-        .json({
-          message: "No attendance records found",
-          data: [],
-          monthSummary: null,
-        });
+      return res.status(404).json({
+        message: "No attendance records found",
+        data: [],
+        monthSummary: null,
+      });
     }
 
     // ---------- Join employee & metadata (parallelized) ----------
@@ -712,7 +710,8 @@ const deleteAttendance = async (req, res) => {
 };
 
 const createBulkAttendanceAction = async (req, res) => {
-  const { employeeIds, reason, status, date } = req.body.payload;
+  const { employeeIds, reason, status, date, clockIn, clockOut } =
+    req.body.payload;
   const { userId } = req.params;
   try {
     console.log(req.body);
@@ -754,20 +753,25 @@ const createBulkAttendanceAction = async (req, res) => {
       createdBy: userId,
 
       // Legacy compatibility / defaults
-      clockIn: null,
-      clockOut: null,
+      clockIn: clockIn ? clockIn : null,
+      clockOut: clockOut ? clockOut : null,
 
       // New sessions array supported by schema
-      sessions: [],
+      sessions: [
+        clockIn && clockOut
+          ? { in: clockIn, out: clockOut, source: "manual" }
+          : null,
+      ],
     }));
 
+    console.log(docs);
     const inserted = await Attendance.insertMany(docs, {
       ordered: false, // insert as many as possible
       rawResult: true, // to introspect write errors
     });
     const requested = uniqueIds.length;
     const createdCount = inserted.insertedCount ?? inserted.length ?? 0;
-
+    console.log(inserted?.mongoose?.validationErrors, "The data is here");
     // If rawResult is present, extract duplicate/conflict telemetry
     const writeErrors =
       inserted?.mongoose?.result?.writeErrors ||
