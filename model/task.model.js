@@ -27,7 +27,7 @@ const TaskSchema = new Schema(
     estimatedHours: { type: Number, min: 0 },
     assigneeEmployeeIds: { type: [String], default: [], index: true },
     checklist: { type: [ChecklistItemSchema], default: [] },
-
+    isDeleted: { type: Boolean, default: false },
     createdBy: { type: String, default: null },
     updatedBy: { type: String, default: null },
     deletedAt: { type: Date, default: null },

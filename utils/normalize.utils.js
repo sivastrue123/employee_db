@@ -24,7 +24,7 @@ export function normalizeClientCreate(
 
 export function normalizeTaskCreate(body, clientId, actorId) {
   const {
-    id, title, description,
+     title, description,
     priority, status,
     startDate, dueDate, actualEndDate,
     estimatedHours, assigneeEmployeeIds, checklist,
@@ -32,7 +32,7 @@ export function normalizeTaskCreate(body, clientId, actorId) {
 
   return {
     clientId,
-    id: id ?? undefined,
+  
     title: String(title).trim(),
     description: description ?? '',
     priority,
@@ -43,7 +43,7 @@ export function normalizeTaskCreate(body, clientId, actorId) {
     estimatedHours: (estimatedHours === undefined || estimatedHours === null) ? undefined : Number(estimatedHours),
     assigneeEmployeeIds: Array.isArray(assigneeEmployeeIds) ? assigneeEmployeeIds : [],
     checklist: Array.isArray(checklist) ? checklist.map(i => ({
-      _id: String(i._id),
+      // _id: String(i._id),
       label: String(i.label),
       done: Boolean(i.done),
       doneAt: coerceDate(i.doneAt),
