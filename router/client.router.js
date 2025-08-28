@@ -17,5 +17,5 @@ router.post("/createClient", createClient);
 router.post("/:clientId/createTask", createTask);
 router.get("/getAllClient", getAllClients);
 router.get("/:clientId/getAllTasks", getTasksByClient);
-router.get("/:clientId/task/:taskId/updateTask", updateTask);
+router.patch("/:clientId/task/:taskId/updateTask", updateTask);
 export default router;

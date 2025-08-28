@@ -194,7 +194,7 @@ export function validateTaskUpdate(body = {}) {
 
   if (checklist !== undefined) {
     const ok = Array.isArray(checklist) && checklist.every(i =>
-      i && typeof i.id === 'string' && typeof i.label === 'string' && typeof i.done === 'boolean'
+      i && typeof i._id === 'string' && typeof i.label === 'string' && typeof i.done === 'boolean'
     );
     if (!ok) errors.push('checklist must be an array of { id:string, label:string, done:boolean, doneAt?:ISO|null }');
   }
