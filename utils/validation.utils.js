@@ -1,5 +1,7 @@
 // src/utils/validation.util.js
 import { CLIENT_STATUS } from "./clientGeneralUtils.js";
+import { TaskPriority,TaskStatus } from "./clientGeneralUtils.js";
+
 
 export function isValidISODate(v) {
   if (!v) return false;
@@ -77,6 +79,69 @@ export function validateClientCreate({
 
   const tagsErr = validateTags(tags);
   if (tagsErr) errors.push(tagsErr);
+
+  return errors;
+}
+
+
+// src/utils/task.validation.js
+
+
+
+export function validateTaskCreate(body) {
+  const {
+    title, priority, status,
+    startDate, dueDate, actualEndDate,
+    estimatedHours, assigneeEmployeeIds, checklist,
+  } = body;
+
+  const errors = [];
+
+  if (!title || !String(title).trim()) errors.push('Task title is required');
+
+  if (!priority || !TaskPriority.includes(priority)) {
+    errors.push(`Priority must be one of: ${TaskPriority.join(', ')}`);
+  }
+
+  if (!status || !TaskStatus.includes(status)) {
+    errors.push(`Status must be one of: ${TaskStatus.join(', ')}`);
+  }
+
+  if (startDate && !isValidISODate(startDate)) errors.push('startDate must be a valid ISO date');
+  if (dueDate && !isValidISODate(dueDate)) errors.push('dueDate must be a valid ISO date');
+  if (actualEndDate && !isValidISODate(actualEndDate)) errors.push('actualEndDate must be a valid ISO date');
+
+  // chronological guards
+  if (startDate && dueDate) {
+    if (new Date(dueDate) < new Date(startDate)) {
+      errors.push('dueDate cannot be earlier than startDate');
+    }
+  }
+  if (actualEndDate && startDate) {
+    if (new Date(actualEndDate) < new Date(startDate)) {
+      errors.push('actualEndDate cannot be earlier than startDate');
+    }
+  }
+
+  // hours
+  if (estimatedHours !== undefined && estimatedHours !== null) {
+    const num = Number(estimatedHours);
+    if (Number.isNaN(num) || num < 0) errors.push('estimatedHours must be a non-negative number');
+  }
+
+  // assignees
+  if (assigneeEmployeeIds !== undefined) {
+    const ok = Array.isArray(assigneeEmployeeIds) && assigneeEmployeeIds.every(a => typeof a === 'string');
+    if (!ok) errors.push('assigneeEmployeeIds must be an array of strings (employee_id values)');
+  }
+
+  // checklist
+  if (checklist !== undefined) {
+    const ok = Array.isArray(checklist) && checklist.every(i =>
+      i && typeof i.label === 'string' && typeof i.done === 'boolean'
+    );
+    if (!ok) errors.push('checklist must be an array of { id:string, label:string, done:boolean, doneAt?:ISO }');
+  }
 
   return errors;
 }

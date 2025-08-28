@@ -17,17 +17,6 @@ export const CLIENT_STATUS = [
   "ARCHIVED",
 ];
 
-export const TaskStatus = Object.freeze({
-  NEW: "NEW",
-  IN_PROGRESS: "IN_PROGRESS",
-  BLOCKED: "BLOCKED",
-  DONE: "DONE",
-  CANCELED: "CANCELED",
-});
+export const TaskStatus = ["NEW", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELED"];
 
-export const TaskPriority = Object.freeze({
-  LOW: "LOW",
-  MEDIUM: "MEDIUM",
-  HIGH: "HIGH",
-  CRITICAL: "CRITICAL",
-});
+export const TaskPriority = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
