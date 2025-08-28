@@ -3,12 +3,16 @@ import { TaskModel } from '../model/task.model.js';
 import { validateTaskCreate } from '../utils/validation.utils.js';
 import { normalizeTaskCreate } from '../utils/normalize.utils.js';
 import { ensureActiveEmployeeOr400 } from '../utils/employee.utils.js';
-import { ensureActiveEmployeesOr400 } from '../utils/projectWithTask.js';
 import { ensureClientExistsAndNotDeletedOr404 } from '../utils/projectWithTask.js';
 import { badRequest } from '../utils/http.utils.js';
 import { buildAuditOptions } from '../utils/audit.plugin.js';
 import { getPagination } from '../utils/pagination.js';
 import mongoose from 'mongoose';
+import { validateTaskUpdate } from '../utils/validation.utils.js';
+import { normalizeTaskUpdate } from '../utils/normalize.utils.js';
+import { ensureActiveEmployeesOr400 } from '../utils/projectWithTask.js';
+
+
 export async function createTask(req, res, next) {
   try {
     const { clientId } = req.params;                // POST /clients/:clientId/tasks
@@ -181,6 +185,81 @@ export async function getTasksByClient(req, res, next) {
       sort: { [sortField]: dir },
       filterApplied: { q, status: status || null, priority: priority || null },
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+
+
+
+// src/controllers/task.controller.js
+
+
+export async function updateTask(req, res, next) {
+  try {
+    const { clientId, taskId } = req.params;
+    const { userId: actorId } = req.query;
+    const body = req.body;
+
+    // guardrails
+    if (!actorId) return badRequest(res, "Actor (query param 'userId' = employee_id) is required");
+    if (!mongoose.isValidObjectId(clientId)) return badRequest(res, 'Invalid clientId');
+    if (!mongoose.isValidObjectId(taskId)) return badRequest(res, 'Invalid taskId');
+
+    // client must exist + not deleted
+    if (!await ensureClientExistsAndNotDeletedOr404(res, clientId)) return;
+
+    // actor must be active
+    if (!await ensureActiveEmployeeOr400(res, actorId, 'Actor')) return;
+
+    // shape validation for partial payload
+    const errors = validateTaskUpdate(body);
+    if (errors.length) return badRequest(res, errors);
+
+    // fetch current task (scoped by client)
+    const existing = await TaskModel.findOne({
+      _id: taskId,
+      clientId: new mongoose.Types.ObjectId(clientId),
+      deletedAt: null,
+    }).lean();
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Task not found for this client' });
+    }
+
+    // chronology integrity using proposed values
+    const nextStart = body.startDate !== undefined ? (body.startDate ? new Date(body.startDate) : null) : existing.startDate;
+    const nextDue   = body.dueDate    !== undefined ? (body.dueDate    ? new Date(body.dueDate)    : null) : existing.dueDate;
+    const nextEnd   = body.actualEndDate !== undefined ? (body.actualEndDate ? new Date(body.actualEndDate) : null) : existing.actualEndDate;
+
+    const chronoErrors = [];
+    if (nextStart && nextDue && nextDue < nextStart) chronoErrors.push('dueDate cannot be earlier than startDate');
+    if (nextStart && nextEnd && nextEnd < nextStart) chronoErrors.push('actualEndDate cannot be earlier than startDate');
+    if (chronoErrors.length) return badRequest(res, chronoErrors);
+
+    // assignees revalidation (only if provided)
+    if (Array.isArray(body.assigneeEmployeeIds)) {
+      if (!(await ensureActiveEmployeesOr400(res, body.assigneeEmployeeIds))) return;
+    }
+
+    // normalize update doc
+    const updateDoc = normalizeTaskUpdate(body, actorId);
+
+    // execute update (audit plugin will log UPDATE)
+    const updated = await TaskModel.findOneAndUpdate(
+      { _id: taskId, clientId: new mongoose.Types.ObjectId(clientId), deletedAt: null },
+      { $set: updateDoc },
+      {
+        new: true,
+        runValidators: true,
+        ...buildAuditOptions(req, actorId), // passes actor/requestId/ip to audit plugin
+      }
+    );
+
+    if (!updated) return res.status(404).json({ error: 'Task not found or already deleted' });
+
+    return res.json(updated);
   } catch (err) {
     next(err);
   }

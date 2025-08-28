@@ -145,3 +145,59 @@ export function validateTaskCreate(body) {
 
   return errors;
 }
+
+
+
+
+export function validateTaskUpdate(body = {}) {
+  const {
+    title, description,
+    priority, status,
+    startDate, dueDate, actualEndDate,
+    estimatedHours, assigneeEmployeeIds, checklist,
+  } = body;
+
+  const errors = [];
+
+  if (title !== undefined && !String(title).trim()) {
+    errors.push('Task title cannot be empty');
+  }
+
+  if (priority !== undefined && !TaskPriority.includes(priority)) {
+    errors.push(`Priority must be one of: ${TaskPriority.join(', ')}`);
+  }
+
+  if (status !== undefined && !TaskStatus.includes(status)) {
+    errors.push(`Status must be one of: ${TaskStatus.join(', ')}`);
+  }
+
+  const isValidISO = (v) => {
+    if (v === null) return true; // allow nulling dates
+    if (v === undefined) return true;
+    const d = new Date(v);
+    return !Number.isNaN(d.getTime());
+  };
+
+  if (!isValidISO(startDate)) errors.push('startDate must be a valid ISO date or null');
+  if (!isValidISO(dueDate)) errors.push('dueDate must be a valid ISO date or null');
+  if (!isValidISO(actualEndDate)) errors.push('actualEndDate must be a valid ISO date or null');
+
+  if (estimatedHours !== undefined && estimatedHours !== null) {
+    const num = Number(estimatedHours);
+    if (Number.isNaN(num) || num < 0) errors.push('estimatedHours must be a non-negative number');
+  }
+
+  if (assigneeEmployeeIds !== undefined) {
+    const ok = Array.isArray(assigneeEmployeeIds) && assigneeEmployeeIds.every(a => typeof a === 'string');
+    if (!ok) errors.push('assigneeEmployeeIds must be an array of strings');
+  }
+
+  if (checklist !== undefined) {
+    const ok = Array.isArray(checklist) && checklist.every(i =>
+      i && typeof i.id === 'string' && typeof i.label === 'string' && typeof i.done === 'boolean'
+    );
+    if (!ok) errors.push('checklist must be an array of { id:string, label:string, done:boolean, doneAt?:ISO|null }');
+  }
+
+  return errors;
+}
