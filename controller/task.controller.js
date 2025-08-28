@@ -94,6 +94,7 @@ export async function getTasksByClient(req, res, next) {
     const matchStage = {
       clientId: new mongoose.Types.ObjectId(clientId),
       deletedAt: null,
+      isDeleted: false,
     };
     if (status) matchStage.status = status;
     if (priority) matchStage.priority = priority;
@@ -305,6 +306,56 @@ export async function updateTask(req, res, next) {
       return res
         .status(404)
         .json({ error: "Task not found or already deleted" });
+
+    return res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+}
+
+
+export async function deleteTask(req, res, next) {
+  try {
+    const { clientId, taskId } = req.params;
+    const { userId: actorId } = req.query;
+
+    // guardrails
+    if (!actorId) return badRequest(res, "Actor (query param 'userId' = employee_id) is required");
+    if (!mongoose.isValidObjectId(clientId)) return badRequest(res, 'Invalid clientId');
+    if (!mongoose.isValidObjectId(taskId))   return badRequest(res, 'Invalid taskId');
+
+    // client must exist + not deleted
+    if (!await ensureClientExistsAndNotDeletedOr404(res, clientId)) return;
+
+    // actor must be active
+    if (!await ensureActiveEmployeeOr400(res, actorId, 'Actor')) return;
+
+    // fetch scoped task
+    const existing = await TaskModel.findOne({
+      _id: taskId,
+      clientId: new mongoose.Types.ObjectId(clientId),
+    }).lean();
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Task not found for this client' });
+    }
+    if (existing.is_deleted === true) {
+      return res.status(409).json({ error: 'Task already deleted' });
+    }
+
+    // flip the soft-delete flag; audit plugin will log UPDATE (before/after/diff)
+    const updated = await TaskModel.findOneAndUpdate(
+      { _id: taskId, clientId: new mongoose.Types.ObjectId(clientId), is_deleted: { $ne: true } },
+      { $set: { isDeleted: true, updatedBy: actorId } },
+      {
+        new: true,
+        runValidators: true,
+        context: 'query',
+        ...buildAuditOptions(req, actorId),
+      }
+    );
+
+    if (!updated) return res.status(404).json({ error: 'Task not found or already deleted' });
 
     return res.json(updated);
   } catch (err) {

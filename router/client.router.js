@@ -6,6 +6,7 @@ import {
 } from "../controller/client.controller.js";
 import {
   createTask,
+  deleteTask,
   getTasksByClient,
   updateTask,
 } from "../controller/task.controller.js";
@@ -18,4 +19,5 @@ router.post("/:clientId/createTask", createTask);
 router.get("/getAllClient", getAllClients);
 router.get("/:clientId/getAllTasks", getTasksByClient);
 router.patch("/:clientId/task/:taskId/updateTask", updateTask);
+router.delete("/:clientId/task/:taskId/deleteTask", deleteTask);
 export default router;
