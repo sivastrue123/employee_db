@@ -4,6 +4,8 @@ import connectDB from "./utils/DbConnector.js";
 import { URI, DATABASE_NAME } from "./config.js";
 import employeeRoutes from "./router/employeeRouter.js";
 import attendanceRoutes from "./router/attendance.Router.js";
+import clientRoutes from "./router/client.router.js";
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -11,7 +13,8 @@ app.use(express.json());
 
 app.use("/api/employee", employeeRoutes);
 app.use("/api/attendance", attendanceRoutes);
-app.use("/", (req,res) => {
+app.use("/api/client", clientRoutes);
+app.use("/", (req, res) => {
   return res.send(200);
 });
 const startingServer = async () => {
