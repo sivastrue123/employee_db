@@ -6,6 +6,10 @@ import { normalizeClientCreate } from "../utils/normalize.utils.js";
 import { badRequest } from "../utils/http.utils.js";
 import { buildAuditOptions } from "../utils/audit.plugin.js";
 
+import { getPagination } from "../utils/pagination.js";
+// import { getSort } from "../utils/pagination.js";
+// import { buildClientSearchFilter } from "../utils/pagination.js";
+
 export async function createClient(req, res, next) {
   try {
     const { name, owner, team, tags, progress, status, dueDate } = req.body;
@@ -43,6 +47,168 @@ export async function createClient(req, res, next) {
 
     const saved = await client.save(buildAuditOptions(req, actorId));
     return res.status(201).json(saved);
+  } catch (err) {
+    next(err);
+  }
+}
+
+
+
+export async function getAllClients(req, res, next) {
+  try {
+    const { page, pageSize, skip } = getPagination(req.query);
+
+    // sorting allowlist
+    const sortKey = String(req.query.sortBy || "").toLowerCase();
+    const dir = String(req.query.sortDir || "asc").toLowerCase() === "desc" ? -1 : 1;
+    const SORT_MAP = { client: "name", owner: "ownerName", progress: "progress", duedate: "dueDate" };
+    const sortField = SORT_MAP[sortKey] || "dueDate";
+
+    // unified search across client name, owner first/last/email, and tags
+    const q = (req.query.q || "").trim();
+    const textOr = [];
+    if (q) {
+      const regex = new RegExp(q, "i");
+      textOr.push(
+        { name: regex },                  // client name
+        { "ownerDoc.first_name": regex }, // owner first
+        { "ownerDoc.last_name": regex },  // owner last
+        { "ownerDoc.email": regex },      // owner email
+        { tags: regex }                   // any tag match
+      );
+    }
+
+    // compute “now” and 14-day horizon once
+    const now = new Date();
+    const horizon14 = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+    const pipeline = [
+      { $match: { deletedAt: null } },
+
+      // join owner by employee_id
+      {
+        $lookup: {
+          from: "employees",
+          localField: "owner",
+          foreignField: "employee_id",
+          as: "ownerDoc",
+        },
+      },
+      { $unwind: { path: "$ownerDoc", preserveNullAndEmptyArrays: true } },
+
+      // computed owner full name (for sort) + KPI booleans
+      {
+        $addFields: {
+          ownerName: {
+            $trim: { input: { $concat: ["$ownerDoc.first_name", " ", "$ownerDoc.last_name"] } },
+          },
+          // KPI helpers
+          _isCompletedOrArchived: { $in: ["$status", ["COMPLETED", "ARCHIVED"]] },
+          _isDueIn14: {
+            $and: [
+              { $ne: ["$dueDate", null] },
+              { $gte: ["$dueDate", now] },
+              { $lte: ["$dueDate", horizon14] },
+              { $not: [{ $in: ["$status", ["COMPLETED", "ARCHIVED"]] }] }
+            ]
+          },
+        },
+      },
+
+      // apply unified search (if provided)
+      ...(textOr.length ? [{ $match: { $or: textOr } }] : []),
+
+      // compute final at-risk flag
+      {
+        $addFields: {
+          _atRisk: {
+            $or: [
+              { $eq: ["$status", "BLOCKED"] },
+              { $and: [{ $eq: ["$_isDueIn14", true] }, { $lt: ["$progress", 50] }] } // tweak threshold as needed
+            ]
+          }
+        }
+      },
+
+      // facet: items page + total + KPI counts
+      {
+        $facet: {
+          items: [
+            { $sort: { [sortField]: dir, _id: 1 } },
+            { $skip: skip },
+            { $limit: pageSize },
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                owner: 1,
+                team: 1,
+                tags: 1,
+                progress: 1,
+                status: 1,
+                dueDate: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                ownerDetails: {
+                  employee_id: "$ownerDoc.employee_id",
+                  first_name: "$ownerDoc.first_name",
+                  last_name: "$ownerDoc.last_name",
+                  email: "$ownerDoc.email",
+                  department: "$ownerDoc.department",
+                  position: "$ownerDoc.position",
+                  status: "$ownerDoc.status",
+                  phone: "$ownerDoc.phone",
+                  profile_image: "$ownerDoc.profile_image",
+                },
+              },
+            },
+          ],
+          meta: [{ $count: "total" }],
+          kpis: [
+            {
+              $group: {
+                _id: null,
+                totalClients: { $sum: 1 },                                       // after current filters
+                dueIn14Days: { $sum: { $cond: ["$_isDueIn14", 1, 0] } },
+                atRiskClients: { $sum: { $cond: ["$_atRisk", 1, 0] } },
+              }
+            }
+          ]
+        },
+      },
+
+      // final shape
+      {
+        $project: {
+          items: 1,
+          total: { $ifNull: [{ $arrayElemAt: ["$meta.total", 0] }, 0] },
+          kpis: { $ifNull: [{ $arrayElemAt: ["$kpis", 0] }, { totalClients: 0, dueIn14Days: 0, atRiskClients: 0 }] }
+        }
+      },
+    ];
+
+    const [result] = await ClientModel.aggregate(pipeline).collation({ locale: "en", strength: 2 });
+    const items = result?.items ?? [];
+    const total = result?.total ?? 0;
+    const { totalClients = 0, dueIn14Days = 0, atRiskClients = 0 } = result?.kpis ?? {};
+
+    return res.json({
+      items,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+      sort: { [sortField]: dir },
+      filterApplied: { q },
+      // 🎯 Dashboard KPIs (respect current q filter)
+      metrics: {
+        totalClients,
+        dueIn14Days,
+        atRiskClients
+      }
+    });
   } catch (err) {
     next(err);
   }
