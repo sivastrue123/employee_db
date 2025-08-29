@@ -10,13 +10,19 @@ export const ProjectStatus = Object.freeze({
 
 // src/utils/status.enum.js
 export const CLIENT_STATUS = [
-  "NOT_STARTED",
-  "IN_PROGRESS",
+  "NOT STARTED",
+  "IN PROGRESS",
   "BLOCKED",
   "COMPLETED",
   "ARCHIVED",
 ];
 
-export const TaskStatus = ["NEW", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELED"];
+export const TaskStatus = [
+  "Not Started",
+  "In Progress",
+  "BLOCKED",
+  "Completed",
+  "CANCELED",
+];
 
-export const TaskPriority = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+export const TaskPriority = ["Low", "Medium", "High", "Critical"];

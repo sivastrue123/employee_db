@@ -44,7 +44,7 @@ export function normalizeTaskCreate(body, clientId, actorId) {
     assigneeEmployeeIds: Array.isArray(assigneeEmployeeIds) ? assigneeEmployeeIds : [],
     checklist: Array.isArray(checklist) ? checklist.map(i => ({
       // _id: String(i._id),
-      label: String(i.label),
+      text: String(i.text),
       done: Boolean(i.done),
       doneAt: coerceDate(i.doneAt),
     })) : [],
@@ -87,7 +87,7 @@ export function normalizeTaskUpdate(body = {}, actorId) {
     out.checklist = Array.isArray(body.checklist)
       ? body.checklist.map(i => ({
           _id: String(i._id),
-          label: String(i.label),
+          text: String(i.text),
           done: Boolean(i.done),
           doneAt: coerceDateOrNull(i.doneAt),
         }))

@@ -138,9 +138,9 @@ export function validateTaskCreate(body) {
   // checklist
   if (checklist !== undefined) {
     const ok = Array.isArray(checklist) && checklist.every(i =>
-      i && typeof i.label === 'string' && typeof i.done === 'boolean'
+      i && typeof i.text === 'string' && typeof i.done === 'boolean'
     );
-    if (!ok) errors.push('checklist must be an array of { id:string, label:string, done:boolean, doneAt?:ISO }');
+    if (!ok) errors.push('checklist must be an array of { id:string, text:string, done:boolean, doneAt?:ISO }');
   }
 
   return errors;
@@ -194,9 +194,9 @@ export function validateTaskUpdate(body = {}) {
 
   if (checklist !== undefined) {
     const ok = Array.isArray(checklist) && checklist.every(i =>
-      i && typeof i._id === 'string' && typeof i.label === 'string' && typeof i.done === 'boolean'
+      i && typeof i._id === 'string' && typeof i.text === 'string' && typeof i.done === 'boolean'
     );
-    if (!ok) errors.push('checklist must be an array of { id:string, label:string, done:boolean, doneAt?:ISO|null }');
+    if (!ok) errors.push('checklist must be an array of { id:string, text:string, done:boolean, doneAt?:ISO|null }');
   }
 
   return errors;

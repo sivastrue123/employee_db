@@ -11,7 +11,7 @@ const ClientSchema = new Schema({
   progress: { type: Number, required: true, min: 0, max: 100 },
   status: { 
     type: String, 
-    enum: ['NOT_STARTED','IN_PROGRESS','BLOCKED','COMPLETED','ARCHIVED'], 
+    enum: ['NOT STARTED','IN PROGRESS','BLOCKED','COMPLETED','ARCHIVED'], 
     required: true, 
     index: true 
   },
