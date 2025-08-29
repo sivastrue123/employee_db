@@ -2,7 +2,11 @@
 import { ClientModel } from "../model/client.model.js";
 import { ensureActiveEmployeeOr400 } from "../utils/employee.utils.js";
 import { validateClientCreate } from "../utils/validation.utils.js";
-import { normalizeClientCreate } from "../utils/normalize.utils.js";
+import {
+  normalizeClientCreate,
+  validateClientUpdate,
+  normalizeClientUpdate,
+} from "../utils/normalize.utils.js";
 import { badRequest } from "../utils/http.utils.js";
 import { buildAuditOptions } from "../utils/audit.plugin.js";
 
@@ -52,16 +56,20 @@ export async function createClient(req, res, next) {
   }
 }
 
-
-
 export async function getAllClients(req, res, next) {
   try {
     const { page, pageSize, skip } = getPagination(req.query);
 
     // sorting allowlist
     const sortKey = String(req.query.sortBy || "").toLowerCase();
-    const dir = String(req.query.sortDir || "asc").toLowerCase() === "desc" ? -1 : 1;
-    const SORT_MAP = { client: "name", owner: "ownerName", progress: "progress", duedate: "dueDate" };
+    const dir =
+      String(req.query.sortDir || "asc").toLowerCase() === "desc" ? -1 : 1;
+    const SORT_MAP = {
+      client: "name",
+      owner: "ownerName",
+      progress: "progress",
+      duedate: "dueDate",
+    };
     const sortField = SORT_MAP[sortKey] || "dueDate";
 
     // unified search across client name, owner first/last/email, and tags
@@ -70,11 +78,11 @@ export async function getAllClients(req, res, next) {
     if (q) {
       const regex = new RegExp(q, "i");
       textOr.push(
-        { name: regex },                  // client name
+        { name: regex }, // client name
         { "ownerDoc.first_name": regex }, // owner first
-        { "ownerDoc.last_name": regex },  // owner last
-        { "ownerDoc.email": regex },      // owner email
-        { tags: regex }                   // any tag match
+        { "ownerDoc.last_name": regex }, // owner last
+        { "ownerDoc.email": regex }, // owner email
+        { tags: regex } // any tag match
       );
     }
 
@@ -100,17 +108,23 @@ export async function getAllClients(req, res, next) {
       {
         $addFields: {
           ownerName: {
-            $trim: { input: { $concat: ["$ownerDoc.first_name", " ", "$ownerDoc.last_name"] } },
+            $trim: {
+              input: {
+                $concat: ["$ownerDoc.first_name", " ", "$ownerDoc.last_name"],
+              },
+            },
           },
           // KPI helpers
-          _isCompletedOrArchived: { $in: ["$status", ["COMPLETED", "ARCHIVED"]] },
+          _isCompletedOrArchived: {
+            $in: ["$status", ["COMPLETED", "ARCHIVED"]],
+          },
           _isDueIn14: {
             $and: [
               { $ne: ["$dueDate", null] },
               { $gte: ["$dueDate", now] },
               { $lte: ["$dueDate", horizon14] },
-              { $not: [{ $in: ["$status", ["COMPLETED", "ARCHIVED"]] }] }
-            ]
+              { $not: [{ $in: ["$status", ["COMPLETED", "ARCHIVED"]] }] },
+            ],
           },
         },
       },
@@ -124,10 +138,15 @@ export async function getAllClients(req, res, next) {
           _atRisk: {
             $or: [
               { $eq: ["$status", "BLOCKED"] },
-              { $and: [{ $eq: ["$_isDueIn14", true] }, { $lt: ["$progress", 50] }] } // tweak threshold as needed
-            ]
-          }
-        }
+              {
+                $and: [
+                  { $eq: ["$_isDueIn14", true] },
+                  { $lt: ["$progress", 50] },
+                ],
+              }, // tweak threshold as needed
+            ],
+          },
+        },
       },
 
       // facet: items page + total + KPI counts
@@ -168,12 +187,12 @@ export async function getAllClients(req, res, next) {
             {
               $group: {
                 _id: null,
-                totalClients: { $sum: 1 },                                       // after current filters
+                totalClients: { $sum: 1 }, // after current filters
                 dueIn14Days: { $sum: { $cond: ["$_isDueIn14", 1, 0] } },
                 atRiskClients: { $sum: { $cond: ["$_atRisk", 1, 0] } },
-              }
-            }
-          ]
+              },
+            },
+          ],
         },
       },
 
@@ -182,15 +201,27 @@ export async function getAllClients(req, res, next) {
         $project: {
           items: 1,
           total: { $ifNull: [{ $arrayElemAt: ["$meta.total", 0] }, 0] },
-          kpis: { $ifNull: [{ $arrayElemAt: ["$kpis", 0] }, { totalClients: 0, dueIn14Days: 0, atRiskClients: 0 }] }
-        }
+          kpis: {
+            $ifNull: [
+              { $arrayElemAt: ["$kpis", 0] },
+              { totalClients: 0, dueIn14Days: 0, atRiskClients: 0 },
+            ],
+          },
+        },
       },
     ];
 
-    const [result] = await ClientModel.aggregate(pipeline).collation({ locale: "en", strength: 2 });
+    const [result] = await ClientModel.aggregate(pipeline).collation({
+      locale: "en",
+      strength: 2,
+    });
     const items = result?.items ?? [];
     const total = result?.total ?? 0;
-    const { totalClients = 0, dueIn14Days = 0, atRiskClients = 0 } = result?.kpis ?? {};
+    const {
+      totalClients = 0,
+      dueIn14Days = 0,
+      atRiskClients = 0,
+    } = result?.kpis ?? {};
 
     return res.json({
       items,
@@ -206,9 +237,95 @@ export async function getAllClients(req, res, next) {
       metrics: {
         totalClients,
         dueIn14Days,
-        atRiskClients
-      }
+        atRiskClients,
+      },
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateClient(req, res, next) {
+  try {
+    const { id } = req.params; // Client _id
+    const { userId: actorId } = req.query; // actor’s employee_id (required)
+    const {
+      name,
+      owner,
+      team,
+      tags,
+      progress,
+      status,
+      dueDate,
+      version, // optional optimistic concurrency token from client
+    } = req.body;
+
+    if (!actorId) {
+      return badRequest(
+        res,
+        "Actor (query param 'userId' = employee_id) is required"
+      );
+    }
+
+    // Validate payload (partial)
+    const errors = validateClientUpdate({
+      name,
+      owner,
+      team,
+      tags,
+      progress,
+      status,
+      dueDate,
+      version,
+    });
+    if (errors.length) return badRequest(res, errors);
+
+    // If we’re changing the owner, ensure the new owner is active
+    if (owner && !(await ensureActiveEmployeeOr400(res, owner, "Owner")))
+      return;
+
+    // Ensure actor is active
+    if (!(await ensureActiveEmployeeOr400(res, actorId, "Actor"))) return;
+
+    // Normalize the delta
+    const delta = normalizeClientUpdate(
+      {
+        name,
+        owner,
+        team,
+        tags,
+        progress,
+        status,
+        dueDate,
+      },
+      actorId
+    );
+
+    // Build query to avoid updating soft-deleted docs
+    const query = { _id: id, deletedAt: null };
+
+    // If client sent a version, use it for optimistic concurrency at query-time
+    if (typeof version === "number") {
+      query.version = version;
+    }
+
+    // Apply update
+    const updated = await ClientModel.findOneAndUpdate(
+      query,
+      { $set: delta },
+      {
+        new: true,
+        runValidators: true, // enforce schema (enum/min/max) on update
+        // Note: Schema-level optimisticConcurrency handles doc.save(); for FUA we guard via version in query
+      }
+    ).setOptions(buildAuditOptions(req, actorId)); // preserve your audit headers / metadata
+
+    if (!updated) {
+      // Either not found, soft-deleted, or version mismatch
+      return notFound(res, "Client not found or version conflict");
+    }
+
+    return res.status(200).json(updated);
   } catch (err) {
     next(err);
   }

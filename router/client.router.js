@@ -3,6 +3,7 @@ import express from "express";
 import {
   createClient,
   getAllClients,
+  updateClient,
 } from "../controller/client.controller.js";
 import {
   createTask,
@@ -13,8 +14,8 @@ import {
 
 const router = express.Router();
 
-// POST /clients
 router.post("/createClient", createClient);
+router.patch("/:clientId/updateClient",updateClient)
 router.post("/:clientId/createTask", createTask);
 router.get("/getAllClient", getAllClients);
 router.get("/:clientId/getAllTasks", getTasksByClient);
