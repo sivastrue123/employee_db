@@ -10,6 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(express.json());
+app.disable("etag");
 
 app.use("/api/employee", employeeRoutes);
 app.use("/api/attendance", attendanceRoutes);
