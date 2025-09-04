@@ -247,7 +247,7 @@ export async function getAllClients(req, res, next) {
 
 export async function updateClient(req, res, next) {
   try {
-    const { id } = req.params; // Client _id
+    const { clientId } = req.params; // Client _id
     const { userId: actorId } = req.query; // actor’s employee_id (required)
     const {
       name,
@@ -302,7 +302,7 @@ export async function updateClient(req, res, next) {
     );
 
     // Build query to avoid updating soft-deleted docs
-    const query = { _id: id, deletedAt: null };
+    const query = { _id: clientId, deletedAt: null };
 
     // If client sent a version, use it for optimistic concurrency at query-time
     if (typeof version === "number") {
@@ -319,10 +319,10 @@ export async function updateClient(req, res, next) {
         // Note: Schema-level optimisticConcurrency handles doc.save(); for FUA we guard via version in query
       }
     ).setOptions(buildAuditOptions(req, actorId)); // preserve your audit headers / metadata
-
+    console.log(updated);
     if (!updated) {
       // Either not found, soft-deleted, or version mismatch
-      return notFound(res, "Client not found or version conflict");
+      return res.status(400).json({ message: "updation failed" });
     }
 
     return res.status(200).json(updated);

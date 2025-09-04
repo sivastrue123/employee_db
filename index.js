@@ -3,21 +3,29 @@ import express from "express";
 import connectDB from "./utils/DbConnector.js";
 import { URI, DATABASE_NAME } from "./config.js";
 import employeeRoutes from "./router/employeeRouter.js";
-import attendanceRoutes from "./router/attendance.Router.js";
-import clientRoutes from "./router/client.router.js";
+import attendanceRoutes from "./router/attendanceRouter.js";
+import clientRoutes from "./router/clientRouter.js";
+import cors from "cors";
 
 const app = express();
-const PORT = process.env.PORT || 5000;
-
-app.use(express.json());
+const PORT = process.env.PORT || 8080;
+app.disable("x-powered-by");
 app.disable("etag");
+app.use(express.json({ limit: "1mb" }));
 
 app.use("/api/employee", employeeRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/client", clientRoutes);
-app.use("/", (req, res) => {
-  return res.send(200);
-});
+
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    credentials: true,
+  })
+);
+
+app.get("/api/health", (_req, res) => res.status(200).json({ status: "ok" }));
+app.get("/", (_req, res) => res.status(200).send("OK"));
 const startingServer = async () => {
   try {
     if (URI && DATABASE_NAME) {
@@ -30,9 +38,20 @@ const startingServer = async () => {
       console.log(
         `Access the Employee API at http://localhost:${PORT}/api/employee`
       );
+      console.log(`Try: http://localhost:${PORT}/api/health`);
     });
   } catch (error) {
     console.log(error);
+    process.exit(1);
   }
 };
+process.on("unhandledRejection", (e) => {
+  console.error(e);
+  process.exit(1);
+});
+process.on("uncaughtException", (e) => {
+  console.error(e);
+  process.exit(1);
+});
+
 startingServer();
