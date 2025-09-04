@@ -209,10 +209,16 @@ const deleteEmployee = async (req, res) => {
   }
 };
 
+const getDashboardData = async (req, res) => {
+  try {
+  } catch (error) {}
+};
+
 export {
   createEmployee,
   getAllEmployee,
   editEmployee,
   deleteEmployee,
   checkEmail,
+  getDashboardData,
 };

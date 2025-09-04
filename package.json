@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "employee portal",
   "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
