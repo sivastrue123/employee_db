@@ -83,7 +83,7 @@ const checkEmail = async (req, res) => {
         employee_details: existingEmployee,
       });
     }
-    res.status(403).json({ exists: false, message: "No Access" });
+    res.status(404).json({ exists: false, message: "No Access" });
   } catch (error) {
     console.error("Error checking email:", error);
     res.status(500).json({ message: "Server error", error: error.message });
