@@ -19,7 +19,8 @@ app.use("/api/client", clientRoutes);
 
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: ["http://localhost:5173", "https://ez-emp-ui.azurewebsites.net"],
+
     credentials: true,
   })
 );
