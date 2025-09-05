@@ -12,11 +12,6 @@ const PORT = process.env.PORT || 8080;
 app.disable("x-powered-by");
 app.disable("etag");
 app.use(express.json({ limit: "1mb" }));
-
-app.use("/api/employee", employeeRoutes);
-app.use("/api/attendance", attendanceRoutes);
-app.use("/api/client", clientRoutes);
-
 app.use(
   cors({
     origin: ["http://localhost:5173", "https://ez-emp-ui.azurewebsites.net"],
@@ -24,6 +19,10 @@ app.use(
     credentials: true,
   })
 );
+
+app.use("/api/employee", employeeRoutes);
+app.use("/api/attendance", attendanceRoutes);
+app.use("/api/client", clientRoutes);
 
 app.get("/api/health", (_req, res) => res.status(200).json({ status: "ok" }));
 app.get("/", (_req, res) => res.status(200).send("OK"));
