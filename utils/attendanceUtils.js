@@ -18,53 +18,61 @@ export const computeWorkedMinutes = ({
 }) => {
   let total = 0;
 
-  // Prefer sessions[] if present; otherwise fallback to legacy single-shot
   const hasSessions = Array.isArray(sessions) && sessions.length > 0;
+  const recDate = recordDate ? new Date(recordDate) : null;
+  const isRecordToday =
+    typeof nowIST === "function" && typeof isSameISTDate === "function"
+      ? isSameISTDate(nowIST(), recDate)
+      : false;
 
   if (hasSessions) {
-    // Only aggregate segments that belong to the same IST date as recordDate
-    // and have valid 'in' and 'out'. If 'out' missing and it's today (IST), use "now".
-    const todayIST = formatDateIST(nowIST());
-    const recDateStr = formatDateIST(recordDate);
-
+    // Aggregate full span per session that STARTS on recordDate (IST).
+    // If a session crosses midnight, we count the ENTIRE diff (no 24h wrap).
     for (const s of sessions) {
       if (!s?.in) continue;
-      const inDt = new Date(s.in);
-      if (!isSameISTDate(inDt, recordDate)) continue;
+      const start = new Date(s.in);
 
-      let outDt = s?.out ? new Date(s.out) : null;
-
-      // If open session and it's for today IST, treat "now" as out
-      if (!outDt && recDateStr === todayIST) {
-        outDt = nowIST();
-        // Guardrail: if "now" rolled into next IST day (edge), still cap to same day by minutes only
+      if (typeof isSameISTDate === "function" && recDate) {
+        if (!isSameISTDate(start, recDate)) continue; // only sessions that start on recordDate
       }
 
-      if (!outDt) continue; // ignore open sessions for non-today records
-     
-      // Compute by IST minutes since midnight; this intentionally caps to same-day math
-      const inMin = minutesSinceMidnightIST(inDt);
-      const outMin = minutesSinceMidnightIST(outDt);
-      const delta = Math.max(0, outMin - inMin);
-      total += delta;
+      let end = s?.out ? new Date(s.out) : null;
+      if (!end && isRecordToday) {
+        end = typeof nowIST === "function" ? nowIST() : new Date();
+      }
+      if (!end || end <= start) continue;
+
+      total += Math.round((end - start) / 60000); // minutes across days OK
     }
     return total;
   }
 
-  // Legacy fallback path
-  if (
-    clockIn &&
-    clockOut &&
-    isSameISTDate(clockIn, recordDate) &&
-    isSameISTDate(clockOut, recordDate)
-  ) {
-    const inMin = minutesSinceMidnightIST(clockIn);
-    const outMin = minutesSinceMidnightIST(clockOut);
-    return Math.max(0, outMin - inMin);
+  // Legacy single-shot path (supports cross-midnight)
+  if (clockIn) {
+    const start = new Date(clockIn);
+    let end = clockOut ? new Date(clockOut) : null;
+
+    if (!end && isRecordToday) {
+      end = typeof nowIST === "function" ? nowIST() : new Date();
+    }
+
+    if (end && end > start) {
+      return Math.round((end - start) / 60000);
+    }
   }
 
   return 0;
 };
+
+export const humanizeMinutes = (mins) => {
+  if (!Number.isFinite(mins) || mins <= 0) return "0 hrs";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (m === 0) return `${h} ${h === 1 ? "hr" : "hrs"}`;
+  if (h === 0) return `${m} mins`;
+  return `${h} ${h === 1 ? "hr" : "hrs"} ${m} mins`;
+};
+
 
 // Compute earliest "in" across sessions (fallback to legacy clockIn) for Late calc
 export const earliestInMinutesIST = ({
@@ -121,14 +129,7 @@ export const minutesSinceMidnightIST = (d) => {
   const { h, m } = getISTParts(d);
   return h * 60 + m;
 };
-export const humanizeMinutes = (mins) => {
-  if (!mins || mins <= 0) return "0 hrs";
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (m === 0) return `${h} ${h === 1 ? "hr" : "hrs"}`;
-  if (h === 0) return `${m} mins`;
-  return `${h} ${h === 1 ? "hr" : "hrs"} ${m} mins`;
-};
+
 export const mapStatusToFront = (status, clockIn) => {
   if (status === "Absent" || status === "On Leave") return "Absent";
   if (!clockIn) return "Absent";

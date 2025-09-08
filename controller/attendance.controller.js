@@ -410,7 +410,6 @@ const getAllAttendance = async (req, res) => {
   }
 };
 
-// controller
 const getAttendanceByEmployee = async (req, res) => {
   const { employeeId } = req.params;
   try {
