@@ -24,7 +24,7 @@ app.use(
 app.use("/api/employee", employeeRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/client", clientRoutes);
-app.use("/api/push", pushRoutes);
+// app.use("/api/push", pushRoutes);
 
 
 app.get("/api/health", (_req, res) => res.status(200).json({ status: "ok" }));
