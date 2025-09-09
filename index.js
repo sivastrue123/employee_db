@@ -6,7 +6,7 @@ import employeeRoutes from "./router/employeeRouter.js";
 import attendanceRoutes from "./router/attendanceRouter.js";
 import clientRoutes from "./router/clientRouter.js";
 import cors from "cors";
-import pushRoutes from "./router/webPush.js"
+// import pushRoutes from "./router/webPush.js"
 
 const app = express();
 const PORT = process.env.PORT || 8080;
