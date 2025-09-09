@@ -411,7 +411,7 @@ const getAllAttendance = async (req, res) => {
 };
 
 const getAttendanceByEmployee = async (req, res) => {
-  const { employeeId } = req.params;
+  const { employeeId } = req.query;
   try {
     const attendanceRecords = await Attendance.find({ employeeId })
       .sort({ date: -1 })

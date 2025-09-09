@@ -11,17 +11,11 @@ import {
 
 const router = Router();
 
-router.post("/createAttendance", createAttendance,editAttendance);
+router.post("/createAttendance", createAttendance, editAttendance);
 router.get("/getAllAttendance", getAllAttendance);
-router.get(
-  "/getAttendanceByEmployee/employee/:employeeId",
-  getAttendanceByEmployee
-);
+router.get("/getAttendanceByEmployee", getAttendanceByEmployee);
 router.put("/editAttendance/:attendanceId", editAttendance);
 router.delete("/deleteAttendance/:attendanceId", deleteAttendance);
-router.get(
-  "/getUserAttendanceByDate",
-  getUserAttendanceByDate
-);
-router.post("/MoreActions/:userId",createBulkAttendanceAction)
+router.get("/getUserAttendanceByDate", getUserAttendanceByDate);
+router.post("/MoreActions/:userId", createBulkAttendanceAction);
 export default router;
