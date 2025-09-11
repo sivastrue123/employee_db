@@ -2,8 +2,11 @@
 import express from "express";
 import {
   createClient,
+  createNotes,
   getAllClients,
+  getNotesByClient,
   updateClient,
+  updateNote,
 } from "../controller/client.controller.js";
 import {
   createTask,
@@ -15,7 +18,10 @@ import {
 const router = express.Router();
 
 router.post("/createClient", createClient);
-router.patch("/:clientId/updateClient",updateClient)
+router.post("/note", createNotes);
+router.patch("/note/:noteId",updateNote)
+router.get("/note", getNotesByClient);
+router.patch("/:clientId/updateClient", updateClient);
 router.post("/:clientId/createTask", createTask);
 router.get("/getAllClient", getAllClients);
 router.get("/:clientId/getAllTasks", getTasksByClient);

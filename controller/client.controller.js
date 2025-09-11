@@ -9,8 +9,9 @@ import {
 } from "../utils/normalize.utils.js";
 import { badRequest } from "../utils/http.utils.js";
 import { buildAuditOptions } from "../utils/audit.plugin.js";
-
+import mongoose from "mongoose";
 import { getPagination } from "../utils/pagination.js";
+import { Notes } from "../model/notes.model.js";
 // import { getSort } from "../utils/pagination.js";
 // import { buildClientSearchFilter } from "../utils/pagination.js";
 
@@ -328,5 +329,180 @@ export async function updateClient(req, res, next) {
     return res.status(200).json(updated);
   } catch (err) {
     next(err);
+  }
+}
+
+export async function createNotes(req, res, next) {
+  try {
+    const { clientId, title, text } = req.body;
+    const { userId } = req.query;
+
+    // -------- Validation Layer
+    if (!clientId || !mongoose.Types.ObjectId.isValid(clientId)) {
+      return res.status(400).json({ message: "Invalid or missing clientId" });
+    }
+    if (!title || typeof title !== "string" || title.trim().length === 0) {
+      return res.status(400).json({ message: "Notes title is required" });
+    }
+    if (!text || typeof text !== "string" || text.trim().length === 0) {
+      return res.status(400).json({ message: "Notes text is required" });
+    }
+    if (!userId) {
+      return res.status(400).json({ message: "Missing userId in query" });
+    }
+
+    // -------- Persist Layer
+    const note = new Notes({
+      clientId,
+      title: title,
+      notes: text.trim(),
+      createdBy: userId,
+    });
+
+    await note.save();
+
+    return res.status(201).json({
+      message: "Note created successfully",
+      data: note,
+    });
+  } catch (error) {
+    console.error("Error creating note:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+}
+
+export async function getNotesByClient(req, res) {
+  try {
+    const {
+      clientId,
+      page = "1",
+      limit = "20",
+      sort = "createdAt:desc",
+      includeDeleted = "false",
+      q, // optional text search
+    } = req.query;
+
+    // ---------- Guardrails
+    if (!clientId || !mongoose.Types.ObjectId.isValid(clientId)) {
+      return res.status(400).json({ message: "Invalid or missing clientId" });
+    }
+
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100); // cap to avoid abuse
+    const skip = (pageNum - 1) * limitNum;
+
+    // sort syntax: field:direction (e.g., createdAt:desc)
+    const [sortField = "createdAt", sortDirRaw = "desc"] =
+      String(sort).split(":");
+    const sortDir = sortDirRaw.toLowerCase() === "asc" ? 1 : -1;
+
+    // ---------- Query Fabric
+    const filter = {
+      clientId: new mongoose.Types.ObjectId(clientId),
+      ...(includeDeleted === "true" ? {} : { isDeleted: { $ne: true } }),
+      ...(q
+        ? {
+            $or: [
+              { title: { $regex: q, $options: "i" } }, // title search ✅
+              { notes: { $regex: q, $options: "i" } }, // optional: body search
+            ],
+          }
+        : {}),
+    };
+
+    // ---------- Data Plane (parallelized for throughput)
+    const [items, total] = await Promise.all([
+      Notes.find(filter)
+        .sort({ [sortField]: sortDir })
+        .skip(skip)
+        .limit(limitNum)
+        .populate({
+          path: "createdByUser",
+          select: "employee_id first_name last_name      ",
+          match: { isDeleted: { $ne: true } }, // don't hydrate deleted employees
+        })
+        .lean({ virtuals: true }),
+      Notes.countDocuments(filter),
+    ]);
+
+    // ---------- Response Contract
+    return res.status(200).json({
+      items,
+      meta: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum) || 1,
+        sort: { field: sortField, direction: sortDir === 1 ? "asc" : "desc" },
+        includeDeleted: includeDeleted === "true",
+        query: q || null,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching notes by client:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+}
+
+export async function updateNote(req, res) {
+  try {
+    const { noteId } = req.params;
+    const { userId } = req.query;
+    const { title, text } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(noteId)) {
+      return res.status(400).json({ message: "Invalid note id" });
+    }
+    if (!userId) {
+      return res.status(400).json({ message: "Missing userId in query" });
+    }
+    if (typeof title === "undefined" && typeof text === "undefined") {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    const $set = { updatedBy: userId };
+    if (typeof title !== "undefined") $set.title = String(title);
+    if (typeof text !== "undefined") $set.notes = String(text);
+
+    const updated = await Notes.findOneAndUpdate(
+      { _id: noteId, isDeleted: { $ne: true } },
+      { $set },
+      { new: true, runValidators: true }
+    )
+      .populate({
+        path: "createdByUser",
+        select:
+          "employee_id first_name last_name email department position status phone profile_image",
+        match: { isDeleted: { $ne: true } },
+      })
+      .lean({ virtuals: true });
+
+    if (!updated) {
+      return res.status(404).json({ message: "Note not found" });
+    }
+
+    // normalize createdBy
+    const u = updated.createdByUser;
+    const createdBy = u
+      ? {
+          employee_id: u.employee_id,
+          first_name: u.first_name,
+          last_name: u.last_name,
+          email: u.email,
+          department: u.department,
+          position: u.position,
+          status: u.status,
+          phone: u.phone,
+          profile_image: u.profile_image,
+        }
+      : null;
+    const { createdByUser, ...rest } = updated;
+
+    return res
+      .status(200)
+      .json({ message: "Note updated", data: { ...rest, createdBy } });
+  } catch (e) {
+    console.error("Error updating note:", e);
+    return res.status(500).json({ message: "Internal server error" });
   }
 }
