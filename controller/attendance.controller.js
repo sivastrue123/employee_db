@@ -234,6 +234,7 @@ const getAllAttendance = async (req, res) => {
         employeeId,
         createdAt,
         EditedAt,
+        otStatus,
       } = row;
 
       const [createdByDetails, editedByDetails, employeeDetails] =
@@ -300,6 +301,7 @@ const getAllAttendance = async (req, res) => {
         id: String(_id),
         attendanceDate, // string from formatDateIST
         employeeId,
+        otStatus: otStatus ? otStatus : null,
         employeeName: `${empFirst} ${empLast}`.trim() || null,
         employeeDepartment: employeeDetails?.department ?? "N/A",
         clockIn: formatTimeIST12(displayClockIn),
@@ -422,7 +424,7 @@ const getAttendanceByEmployee = async (req, res) => {
     }
 
     const result = attendanceRecords.map((row) => {
-      const { _id, date, clockIn, clockOut, status, sessions } = row;
+      const { _id, date, clockIn, clockOut, status, sessions, otStatus } = row;
 
       const attendanceDate = formatDateIST(date);
 
@@ -484,6 +486,7 @@ const getAttendanceByEmployee = async (req, res) => {
         attendanceDate,
         clockIn: formatTimeIST12(displayClockIn),
         clockOut: formatTimeIST12(displayClockOut),
+        otStatus: otStatus ? otStatus : null,
         worked: humanizeMinutes(workedMinutes), // <-- NEW surfaced metric
         ot: humanizeMinutes(otMinutes),
         status: feStatus,
@@ -819,7 +822,49 @@ const createBulkAttendanceAction = async (req, res) => {
       .json({ message: "Server error", error: error.message });
   }
 };
+const updateOTStatus = async (req, res) => {
+  try {
+    const ALLOWED_OT = new Set(["Approved", "Rejected", "Pending"]);
+    const { attendanceId } = req.params;
+    const { status } = req.body;
 
+    // Prefer auth middleware (req.user), fallback to query userId
+    const actionBy = req.user?.id || req.user?._id || req.query.userId || null;
+
+    if (!status || !ALLOWED_OT.has(status)) {
+      return res.status(400).json({
+        message: "Invalid status. Allowed values: Approved, Rejected, Pending",
+      });
+    }
+    if (!attendanceId) {
+      return res.status(400).json({ message: "attendanceId is required" });
+    }
+
+    const update = {
+      otStatus: status,
+      otDecision: actionBy ? { actionBy, actionAt: new Date() } : undefined, // if you want to *require* actionBy, change this to a 400 above.
+      EditedAt: new Date(),
+      ...(actionBy ? { EditedBy: actionBy } : {}),
+    };
+
+    const doc = await Attendance.findByIdAndUpdate(attendanceId, update, {
+      new: true,
+      runValidators: true,
+    }).lean();
+
+    if (!doc) {
+      return res.status(404).json({ message: "Attendance not found" });
+    }
+
+    return res.status(200).json({
+      message: "OT status updated",
+      data: doc,
+    });
+  } catch (err) {
+    console.error("updateOTStatus error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
 export {
   createAttendance,
   getAllAttendance,
@@ -828,4 +873,5 @@ export {
   deleteAttendance,
   getUserAttendanceByDate,
   createBulkAttendanceAction,
+  updateOTStatus,
 };
