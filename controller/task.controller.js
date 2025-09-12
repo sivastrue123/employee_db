@@ -72,9 +72,15 @@ export async function getTasksByClient(req, res, next) {
     };
     const sortField = SORT_MAP[sortKey] || "dueDate";
 
-    // Optional filters (status, priority) — safe defaults
+    // Optional filters
     const status = req.query.status;
     const priority = req.query.priority;
+
+    // NEW: optional assignee filter (userId can be comma-separated)
+    const assigneeParam = (req.query.userId ?? "").toString().trim();
+    const assigneeIds = assigneeParam
+      ? assigneeParam.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
 
     // Unified search across title/description/checklist + assignee names/emails
     const q = (req.query.q || "").trim();
@@ -98,6 +104,14 @@ export async function getTasksByClient(req, res, next) {
     };
     if (status) matchStage.status = status;
     if (priority) matchStage.priority = priority;
+
+    // Apply assignee filter if provided
+    if (assigneeIds.length === 1) {
+      // equality on array field matches elements
+      matchStage.assigneeEmployeeIds = assigneeIds[0];
+    } else if (assigneeIds.length > 1) {
+      matchStage.assigneeEmployeeIds = { $in: assigneeIds };
+    }
 
     const pipeline = [
       { $match: matchStage },
@@ -157,8 +171,7 @@ export async function getTasksByClient(req, res, next) {
                 updatedBy: 1,
                 createdAt: 1,
                 updatedAt: 1,
-                // hydrated assignees
-                assignees: 1,
+                assignees: 1, // hydrated
               },
             },
           ],
@@ -177,6 +190,7 @@ export async function getTasksByClient(req, res, next) {
       locale: "en",
       strength: 2,
     });
+
     const items = result?.items ?? [];
     const total = result?.total ?? 0;
 
@@ -189,12 +203,18 @@ export async function getTasksByClient(req, res, next) {
         totalPages: Math.ceil(total / pageSize),
       },
       sort: { [sortField]: dir },
-      filterApplied: { q, status: status || null, priority: priority || null },
+      filterApplied: {
+        q,
+        status: status || null,
+        priority: priority || null,
+        assignees: assigneeIds.length ? assigneeIds : null, // ← new
+      },
     });
   } catch (err) {
     next(err);
   }
 }
+
 
 // src/controllers/task.controller.js
 
