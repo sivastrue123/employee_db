@@ -9,12 +9,7 @@ const NotesSchema = new Schema(
       unique: true, // enforce uniqueness
       index: true,
     },
-    clientId: {
-      type: Schema.Types.ObjectId,
-      //   ref: "Client",
-      required: true,
-      index: true,
-    },
+ 
     title: {
       type: String,
       required: true,

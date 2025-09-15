@@ -334,13 +334,9 @@ export async function updateClient(req, res, next) {
 
 export async function createNotes(req, res, next) {
   try {
-    const { clientId, title, text } = req.body;
+    const { title, text } = req.body;
     const { userId } = req.query;
 
-    // -------- Validation Layer
-    if (!clientId || !mongoose.Types.ObjectId.isValid(clientId)) {
-      return res.status(400).json({ message: "Invalid or missing clientId" });
-    }
     if (!title || typeof title !== "string" || title.trim().length === 0) {
       return res.status(400).json({ message: "Notes title is required" });
     }
@@ -353,7 +349,6 @@ export async function createNotes(req, res, next) {
 
     // -------- Persist Layer
     const note = new Notes({
-      clientId,
       title: title,
       notes: text.trim(),
       createdBy: userId,
@@ -374,18 +369,12 @@ export async function createNotes(req, res, next) {
 export async function getNotesByClient(req, res) {
   try {
     const {
-      clientId,
       page = "1",
       limit = "20",
       sort = "createdAt:desc",
       includeDeleted = "false",
       q, // optional text search
     } = req.query;
-
-    // ---------- Guardrails
-    if (!clientId || !mongoose.Types.ObjectId.isValid(clientId)) {
-      return res.status(400).json({ message: "Invalid or missing clientId" });
-    }
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100); // cap to avoid abuse
@@ -398,7 +387,6 @@ export async function getNotesByClient(req, res) {
 
     // ---------- Query Fabric
     const filter = {
-      clientId: new mongoose.Types.ObjectId(clientId),
       ...(includeDeleted === "true" ? {} : { isDeleted: { $ne: true } }),
       ...(q
         ? {
