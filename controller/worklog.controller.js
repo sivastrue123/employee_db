@@ -45,9 +45,8 @@ export async function insertWorklog(req, res) {
  */
 export async function getAllWorklogs(req, res) {
   try {
-    const { employeeId, from, to } = req.query;
+    const { employeeId, from, to, submittedByName } = req.query;
 
-    // build filter
     const filter = {};
     if (employeeId) filter.employeeId = String(employeeId);
     if (from || to) {
@@ -56,14 +55,11 @@ export async function getAllWorklogs(req, res) {
       if (to) filter.date.$lte = String(to);
     }
 
-    // resolve the real collection name for safety ("employees")
     const employeesCollection = Employee.collection.name;
 
     const pipeline = [
       { $match: filter },
-      { $sort: { createdAt: -1 } },
-
-      // join Employee by employeeId → employee.employee_id
+      // join employee
       {
         $lookup: {
           from: employeesCollection,
@@ -72,8 +68,7 @@ export async function getAllWorklogs(req, res) {
           as: "emp",
         },
       },
-
-      // derive submittedByName (fallbacks to employeeId if not found)
+      // derive full name
       {
         $addFields: {
           submittedByName: {
@@ -93,8 +88,19 @@ export async function getAllWorklogs(req, res) {
           },
         },
       },
+    ];
 
-      // project a lean, UI-friendly shape (hide _id and attendanceId)
+    // ✅ optional name filter (case-insensitive)
+    if (submittedByName) {
+      pipeline.push({
+        $match: {
+          submittedByName: { $regex: String(submittedByName), $options: "i" },
+        },
+      });
+    }
+
+    // final projection + sort
+    pipeline.push(
       {
         $project: {
           _id: 0,
@@ -105,12 +111,10 @@ export async function getAllWorklogs(req, res) {
           totalHours: 1,
           createdAt: 1,
           updatedAt: 1,
-          // keep submittedBy if you still store it, but you won't show it in UI:
-          // submittedBy: 1,
-          // attendanceId: 0  // <- explicitly omit
         },
       },
-    ];
+      { $sort: { createdAt: -1 } }
+    );
 
     const docs = await Worklog.aggregate(pipeline);
     return res.json({ ok: true, data: docs });
