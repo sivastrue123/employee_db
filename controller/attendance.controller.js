@@ -9,7 +9,21 @@ import {
   isSameISTDate,
   formatTimeIST12,
   humanizeMinutes,
+  nowIST
 } from "../utils/attendanceUtils.js";
+import { autoCloseYesterdaysOpenAttendancesIST } from "../middleware/autoAttendanceClose.js";
+
+async function getAdminEditorId() {
+  // Prefer an active, non-deleted Admin. Deterministic pick for stability.
+  const admin = await Employee.findOne(
+    { role: "admin", status: "active", isDeleted: false },
+    { _id: 1 }
+  )
+    .sort({ createdAt: 1, _id: 1 }) // stable tie-breaker
+    .lean();
+
+  return admin?._id?.toString() || null;
+}
 
 const createAttendance = async (req, res, next) => {
   const { employeeId, date, clockIn, clockOut, status, reason, createdBy } =
@@ -37,7 +51,15 @@ const createAttendance = async (req, res, next) => {
         .status(409)
         .json({ message: "Attendance already recorded for today" });
     }
-
+    try {
+      const adminId = await getAdminEditorId();
+      await autoCloseYesterdaysOpenAttendancesIST({
+        triggerAt: nowIST(),
+        editedBy: adminId,
+      });
+    } catch (e) {
+      console.error("Auto-close routine failed (non-blocking):", e);
+    }
     const newAttendance = new Attendance({
       employeeId,
       date,
