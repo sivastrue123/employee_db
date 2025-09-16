@@ -320,7 +320,7 @@ export async function updateClient(req, res, next) {
         // Note: Schema-level optimisticConcurrency handles doc.save(); for FUA we guard via version in query
       }
     ).setOptions(buildAuditOptions(req, actorId)); // preserve your audit headers / metadata
-    console.log(updated);
+    
     if (!updated) {
       // Either not found, soft-deleted, or version mismatch
       return res.status(400).json({ message: "updation failed" });

@@ -69,7 +69,7 @@ async function lookupEmployeeName(id) {
 
 // Fan-out to many users (excluding actor), with pruning of dead endpoints
 async function sendPushToUsers(userIds = [], actorId, payload, options) {
-  console.log(userIds, actorId, payload, options);
+
   const targetIds = userIds
     .map(String)
     .filter((id) => String(id) !== String(actorId));
@@ -79,8 +79,7 @@ async function sendPushToUsers(userIds = [], actorId, payload, options) {
   const subs = await PushSubscription.find({
     userId: { $in: targetIds },
   }).lean();
-  console.log(subs);
-  console.log(targetIds);
+
 
   let sent = 0;
   const body = JSON.stringify(payload);
@@ -113,7 +112,7 @@ async function sendPushToUsers(userIds = [], actorId, payload, options) {
 export function notifyOnTaskCreated() {
   return function (req, res, next) {
     const { userId: actorId } = req.query;
-    console.log(actorId);
+
     // tap res.json to capture payload
     const _json = res.json.bind(res);
     res.json = (body) => {
@@ -127,7 +126,7 @@ export function notifyOnTaskCreated() {
       try {
         const task = res.locals.__taskCreated;
         if (!task || res.statusCode !== 201) return;
-        console.log(task);
+
         const assignees = await resolveUserIds(task.assigneeEmployeeIds || []);
         const actorName = await lookupEmployeeName(actorId);
 

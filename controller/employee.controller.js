@@ -40,7 +40,7 @@ const createEmployee = async (req, res) => {
     if (existingEmployee) {
       return res.status(409).json({ message: "Employe id  already in use" });
     }
-    console.log(existingEmployee, String(employee_id));
+   
     if (existingEmployee?.email === String(email)) {
       return res.status(409).json({ message: "email Id already exists" });
     }

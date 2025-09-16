@@ -40,10 +40,10 @@ const createAttendance = async (req, res, next) => {
       date,
     });
 
-    console.log(existingAttendance);
+    
     if (existingAttendance) {
       if (!existingAttendance?.clockOut) {
-        console.log("it is going here");
+        
         req.params.attendanceId = existingAttendance._id;
         return next();
       }
@@ -95,8 +95,7 @@ const getUserAttendanceByDate = async (req, res) => {
 
     const attendanceObj = attendance.toObject();
 
-    // Calculate total worked minutes from sessions
-    console.log(attendanceObj);
+    // Calculate total worked minutes fr
     let workedMinutes;
     // Iterate through sessions and calculate worked time
     if (attendanceObj.sessions && attendanceObj.sessions.length > 0) {
@@ -109,7 +108,7 @@ const getUserAttendanceByDate = async (req, res) => {
         recordDate: new Date(date),
       });
     }
-    console.log(workedMinutes);
+    
     // --- Calculate the total worked hours and format them ---
 
     // Add the worked hours and minutes to the attendance object
@@ -544,17 +543,7 @@ const editAttendance = async (req, res) => {
     const inAt = clockIn ? new Date(clockIn) : null;
     const outAt = clockOut ? new Date(clockOut) : null;
     const now = new Date();
-    console.log(
-      attendanceId,
-      clockIn,
-      clockOut,
-      status,
-      reason,
-      LoggedOut,
-      userId,
-      inAt,
-      outAt
-    );
+    
     // Guardrails: out must be after in when both supplied
     if (inAt && outAt && outAt < inAt) {
       return res
@@ -564,7 +553,7 @@ const editAttendance = async (req, res) => {
 
     // === 1) Explicit logout flow ===
     if (LoggedOut && outAt) {
-      console.log("kjdk");
+    
       const updated = await Attendance.findOneAndUpdate(
         { _id: attendanceId },
         {
@@ -597,7 +586,6 @@ const editAttendance = async (req, res) => {
 
     // === 2) Start a new session (clockIn only) ===
     if (inAt && !outAt) {
-      console.log("dffdfd");
       // Optional: prevent concurrent open sessions
       const hasOpen = attendance.sessions?.some((s) => s && s.out === null);
       if (hasOpen) {
@@ -621,12 +609,11 @@ const editAttendance = async (req, res) => {
         },
         { new: true }
       );
-      console.log(punched);
+    
 
       const attendanceObj = punched.toObject();
 
-      // Calculate total worked minutes from sessions
-      console.log(attendanceObj);
+     
       let workedMinutes;
       // Iterate through sessions and calculate worked time
       if (attendanceObj.sessions && attendanceObj.sessions.length > 0) {
@@ -641,7 +628,7 @@ const editAttendance = async (req, res) => {
           recordDate: new Date(attendanceObj.date),
         });
       }
-      console.log(workedMinutes);
+     
       // --- Calculate the total worked hours and format them ---
 
       // Add the worked hours and minutes to the attendance object
@@ -657,7 +644,7 @@ const editAttendance = async (req, res) => {
     // === 3) Close last open session with provided clockOut (clockIn + clockOut) ===
     // We intentionally ignore the provided clockIn here and just close the last open session
     if (!inAt && outAt) {
-      console.log("jkjkj");
+      
 
       const hasOpen = attendance.sessions?.some((s) => s && s.out === null);
       if (!hasOpen) {
@@ -738,9 +725,9 @@ const createBulkAttendanceAction = async (req, res) => {
     req.body.payload;
   const { userId } = req.params;
   try {
-    console.log(req.body);
+   og(req.body);
     if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
-      console.log(employeeIds, typeof employeeIds);
+
       return res
         .status(400)
         .json({ message: "employeeIds must be a non-empty array." });
@@ -788,14 +775,14 @@ const createBulkAttendanceAction = async (req, res) => {
       ],
     }));
 
-    console.log(docs);
+
     const inserted = await Attendance.insertMany(docs, {
       ordered: false, // insert as many as possible
       rawResult: true, // to introspect write errors
     });
     const requested = uniqueIds.length;
     const createdCount = inserted.insertedCount ?? inserted.length ?? 0;
-    console.log(inserted?.mongoose?.validationErrors, "The data is here");
+    
     // If rawResult is present, extract duplicate/conflict telemetry
     const writeErrors =
       inserted?.mongoose?.result?.writeErrors ||
