@@ -90,7 +90,10 @@ export function normalizeTaskUpdate(body = {}, actorId) {
     out.estimatedHours =
       body.estimatedHours === null ? null : Number(body.estimatedHours);
   }
-
+  if (body.actualHours !== undefined) {
+    out.actualHours =
+      body.actualHours === null ? null : Number(body.actualHours);
+  }
   if (body.assigneeEmployeeIds !== undefined) {
     out.assigneeEmployeeIds = Array.isArray(body.assigneeEmployeeIds)
       ? body.assigneeEmployeeIds

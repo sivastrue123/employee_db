@@ -79,7 +79,10 @@ export async function getTasksByClient(req, res, next) {
     // NEW: optional assignee filter (userId can be comma-separated)
     const assigneeParam = (req.query.userId ?? "").toString().trim();
     const assigneeIds = assigneeParam
-      ? assigneeParam.split(",").map((s) => s.trim()).filter(Boolean)
+      ? assigneeParam
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
       : [];
 
     // Unified search across title/description/checklist + assignee names/emails
@@ -165,6 +168,7 @@ export async function getTasksByClient(req, res, next) {
                 dueDate: 1,
                 actualEndDate: 1,
                 estimatedHours: 1,
+                actualHours: 1,
                 assigneeEmployeeIds: 1,
                 checklist: 1,
                 createdBy: 1,
@@ -214,7 +218,6 @@ export async function getTasksByClient(req, res, next) {
     next(err);
   }
 }
-
 
 // src/controllers/task.controller.js
 
@@ -333,22 +336,27 @@ export async function updateTask(req, res, next) {
   }
 }
 
-
 export async function deleteTask(req, res, next) {
   try {
     const { clientId, taskId } = req.params;
     const { userId: actorId } = req.query;
 
     // guardrails
-    if (!actorId) return badRequest(res, "Actor (query param 'userId' = employee_id) is required");
-    if (!mongoose.isValidObjectId(clientId)) return badRequest(res, 'Invalid clientId');
-    if (!mongoose.isValidObjectId(taskId))   return badRequest(res, 'Invalid taskId');
+    if (!actorId)
+      return badRequest(
+        res,
+        "Actor (query param 'userId' = employee_id) is required"
+      );
+    if (!mongoose.isValidObjectId(clientId))
+      return badRequest(res, "Invalid clientId");
+    if (!mongoose.isValidObjectId(taskId))
+      return badRequest(res, "Invalid taskId");
 
     // client must exist + not deleted
-    if (!await ensureClientExistsAndNotDeletedOr404(res, clientId)) return;
+    if (!(await ensureClientExistsAndNotDeletedOr404(res, clientId))) return;
 
     // actor must be active
-    if (!await ensureActiveEmployeeOr400(res, actorId, 'Actor')) return;
+    if (!(await ensureActiveEmployeeOr400(res, actorId, "Actor"))) return;
 
     // fetch scoped task
     const existing = await TaskModel.findOne({
@@ -357,25 +365,32 @@ export async function deleteTask(req, res, next) {
     }).lean();
 
     if (!existing) {
-      return res.status(404).json({ error: 'Task not found for this client' });
+      return res.status(404).json({ error: "Task not found for this client" });
     }
     if (existing.is_deleted === true) {
-      return res.status(409).json({ error: 'Task already deleted' });
+      return res.status(409).json({ error: "Task already deleted" });
     }
 
     // flip the soft-delete flag; audit plugin will log UPDATE (before/after/diff)
     const updated = await TaskModel.findOneAndUpdate(
-      { _id: taskId, clientId: new mongoose.Types.ObjectId(clientId), is_deleted: { $ne: true } },
+      {
+        _id: taskId,
+        clientId: new mongoose.Types.ObjectId(clientId),
+        is_deleted: { $ne: true },
+      },
       { $set: { isDeleted: true, updatedBy: actorId } },
       {
         new: true,
         runValidators: true,
-        context: 'query',
+        context: "query",
         ...buildAuditOptions(req, actorId),
       }
     );
 
-    if (!updated) return res.status(404).json({ error: 'Task not found or already deleted' });
+    if (!updated)
+      return res
+        .status(404)
+        .json({ error: "Task not found or already deleted" });
 
     return res.json(updated);
   } catch (err) {
