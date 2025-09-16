@@ -70,28 +70,20 @@ const createEmployee = async (req, res) => {
   }
 };
 
-const checkEmail = async (req, res) => {
+
+// controllers/employeeController.js
+ const checkEmail = async (req, res) => {
   try {
-    const { email } = req.query;
-    if (!email) {
-      return res.status(400).json({ message: "Email is required" });
-    }
-    const existingEmployee = await Employee.findOne({
-      email,
-      isDeleted: false,
-      status: "active",
+    return res.status(200).json({
+      exists: true,
+      subscribed: req.hasSubscription,
+      employee_details: req.employee,
     });
-    if (existingEmployee) {
-      return res.status(200).json({
-        exists: true,
-        message: "Email  exists",
-        employee_details: existingEmployee,
-      });
-    }
-    res.status(404).json({ exists: false, message: "No Access" });
   } catch (error) {
-    console.error("Error checking email:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error("Error in checkEmail:", error);
+    return res
+      .status(500)
+      .json({ message: "Server error", error: error.message });
   }
 };
 
