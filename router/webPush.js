@@ -127,7 +127,7 @@ router.post("/clockin", async (req, res) => {
     if (subs.length === 1) {
       try {
         await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: sub.keys },
+          { endpoint: subs[0].endpoint, keys: subs[0].keys },
           payload,
           {
             TTL: 600, // 10 min freshness
