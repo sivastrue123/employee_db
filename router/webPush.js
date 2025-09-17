@@ -136,15 +136,18 @@ router.post("/clockin", async (req, res) => {
           }
         );
         sent = 1;
-      } catch (error) {
+      } catch (e) {
         if (e.statusCode === 404 || e.statusCode === 410) {
-          await removeSubscriptionByEndpoint(sub.endpoint);
+          await removeSubscriptionByEndpoint(subs[0].endpoint);
+          throw e
         } else {
+          
           console.error(
             "Clock-in push error:",
             e.statusCode,
             e.body || e.message
           );
+          throw e
         }
       }
     } else {
