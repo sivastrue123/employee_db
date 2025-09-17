@@ -170,6 +170,8 @@ router.post("/clockin", async (req, res) => {
               e.statusCode,
               e.body || e.message
             );
+
+            throw e;
           }
         }
       }
