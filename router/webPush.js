@@ -149,7 +149,6 @@ router.post("/clockin", async (req, res) => {
       }
     } else {
       for (const sub of subs) {
-        sent=5
         try {
           await webpush.sendNotification(
             { endpoint: sub.endpoint, keys: sub.keys },
@@ -160,6 +159,7 @@ router.post("/clockin", async (req, res) => {
               topic: "clockin", // collapse key
             }
           );
+          sent=15
           
         } catch (e) {
           if (e.statusCode === 404 || e.statusCode === 410) {
@@ -182,7 +182,7 @@ router.post("/clockin", async (req, res) => {
     console.error("clockin route failed:", e);
     return res
       .status(500)
-      .json({ error: "Failed to broadcast clock-in", message: e.message });
+      .json({ error: "Failed to broadcast clock-in", message: e });
   }
 });
 
