@@ -160,7 +160,7 @@ router.post("/clockin", async (req, res) => {
               topic: "clockin", // collapse key
             }
           );
-          ;
+          
         } catch (e) {
           if (e.statusCode === 404 || e.statusCode === 410) {
             await removeSubscriptionByEndpoint(sub.endpoint);
