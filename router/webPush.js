@@ -180,7 +180,7 @@ router.post("/clockin", async (req, res) => {
     return res.json({ ok: true, count: sent,subs:subs,length:subs.length });
   } catch (e) {
     console.error("clockin route failed:", e);
-    return res.status(500).json({ error: "Failed to broadcast clock-in",e });
+    return res.status(500).json({ error: "Failed to broadcast clock-in",message:e.message });
   }
 });
 
