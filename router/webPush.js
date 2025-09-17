@@ -147,40 +147,39 @@ router.post("/clockin", async (req, res) => {
           );
         }
       }
-    }
-    else{
-
-    
-    for (const sub of subs) {
-      try {
-        await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: sub.keys },
-          payload,
-          {
-            TTL: 600, // 10 min freshness
-            urgency: "high", // this is time-sensitive
-            topic: "clockin", // collapse key
-          }
-        );
-        sent++;
-      } catch (e) {
-        if (e.statusCode === 404 || e.statusCode === 410) {
-          await removeSubscriptionByEndpoint(sub.endpoint);
-        } else {
-          console.error(
-            "Clock-in push error:",
-            e.statusCode,
-            e.body || e.message
+    } else {
+      for (const sub of subs) {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: sub.keys },
+            payload,
+            {
+              TTL: 600, // 10 min freshness
+              urgency: "high", // this is time-sensitive
+              topic: "clockin", // collapse key
+            }
           );
+          ++sent;
+        } catch (e) {
+          if (e.statusCode === 404 || e.statusCode === 410) {
+            await removeSubscriptionByEndpoint(sub.endpoint);
+          } else {
+            console.error(
+              "Clock-in push error:",
+              e.statusCode,
+              e.body || e.message
+            );
+          }
         }
       }
     }
-  }
 
-    return res.json({ ok: true, count: sent,subs:subs,length:subs.length });
+    return res.json({ ok: true, count: sent, subs: subs, length: subs.length });
   } catch (e) {
     console.error("clockin route failed:", e);
-    return res.status(500).json({ error: "Failed to broadcast clock-in",message:e.message });
+    return res
+      .status(500)
+      .json({ error: "Failed to broadcast clock-in", message: e.message });
   }
 });
 
