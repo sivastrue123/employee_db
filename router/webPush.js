@@ -124,6 +124,33 @@ router.post("/clockin", async (req, res) => {
     });
 
     let sent = 0;
+    if (subs.length === 1) {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: sub.keys },
+          payload,
+          {
+            TTL: 600, // 10 min freshness
+            urgency: "high", // this is time-sensitive
+            topic: "clockin", // collapse key
+          }
+        );
+        sent = 1;
+      } catch (error) {
+        if (e.statusCode === 404 || e.statusCode === 410) {
+          await removeSubscriptionByEndpoint(sub.endpoint);
+        } else {
+          console.error(
+            "Clock-in push error:",
+            e.statusCode,
+            e.body || e.message
+          );
+        }
+      }
+    }
+    else{
+
+    
     for (const sub of subs) {
       try {
         await webpush.sendNotification(
@@ -148,6 +175,7 @@ router.post("/clockin", async (req, res) => {
         }
       }
     }
+  }
 
     return res.json({ ok: true, count: sent });
   } catch (e) {
