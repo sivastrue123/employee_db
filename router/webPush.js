@@ -2,7 +2,7 @@
 import express from "express";
 import webpush from "web-push";
 import PushSubscription from "../model/pushNotification.model.js";
-import Employee from "../model/employee.model.js"; // ⚠️ adjust path if needed
+import Employee from "../model/employee.model.js";
 
 const router = express.Router();
 
@@ -22,11 +22,45 @@ const saveSubscription = async ({ userId, subscription }) => {
 };
 
 const findSubscriptionsByUser = async (userId) => {
-  return PushSubscription.find({ userId }).lean(); // [{ endpoint, keys }]
+  return PushSubscription.find({ userId }).lean();
 };
 
 const removeSubscriptionByEndpoint = async (endpoint) => {
   await PushSubscription.deleteOne({ endpoint });
+};
+
+// --- New function to handle notification sending and error handling
+const sendPushNotification = async (subscription, payload) => {
+  try {
+    await webpush.sendNotification(subscription, payload, {
+      TTL: 600,
+      urgency: "high",
+      topic: "clockin",
+    });
+    return true; // Success
+  } catch (e) {
+    // VAPID key mismatch or other authentication issues
+    if (e.statusCode === 401 || e.statusCode === 403) {
+      console.error(
+        `[PUSH ERROR] Unauthorized/Forbidden: Stale VAPID credentials for subscription. Deleting subscription.`,
+        e.body || e.message,
+        subscription.endpoint
+      );
+      await removeSubscriptionByEndpoint(subscription.endpoint);
+    }
+    // Subscription is no longer valid or has expired
+    else if (e.statusCode === 404 || e.statusCode === 410) {
+      console.warn(
+        `[PUSH WARNING] Subscription Not Found/Gone: Endpoint no longer active. Deleting subscription.`,
+        subscription.endpoint
+      );
+      await removeSubscriptionByEndpoint(subscription.endpoint);
+    } else {
+      // Catch-all for other errors
+      console.error(`[PUSH ERROR] Unexpected error: ${e.statusCode}`, e.body || e.message);
+    }
+    return false; // Failure
+  }
 };
 
 // === ROUTES ===
@@ -49,8 +83,9 @@ router.post("/send", async (req, res) => {
   if (!userId) return res.status(400).json({ error: "userId required" });
 
   const subs = await findSubscriptionsByUser(userId);
-  if (!subs.length)
+  if (!subs.length) {
     return res.json({ ok: true, count: 0, note: "no subscriptions found" });
+  }
 
   const payload = JSON.stringify({
     title: title || "Update",
@@ -58,39 +93,24 @@ router.post("/send", async (req, res) => {
     url: url || "/",
   });
 
-  let sent = 0;
-  for (const sub of subs) {
-    try {
-      await webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: sub.keys },
-        payload
-      );
-      sent++;
-    } catch (e) {
-      if (e.statusCode === 404 || e.statusCode === 410) {
-        await removeSubscriptionByEndpoint(sub.endpoint); // prune stale
-      } else {
-        console.error("Push error:", e.statusCode, e.body || e.message);
-      }
-    }
-  }
-  res.json({ ok: true, count: sent });
+  const promises = subs.map(sub => sendPushNotification(sub, payload));
+  await Promise.allSettled(promises);
+
+  res.json({ ok: true });
 });
 
 /**
  * POST /api/push/clockin
- * Body: { userId: "<actor Mongo _id>", name?: "Display Name", url?: "/Attendance" }
- * Behavior: notifies all *other* users that this person clocked in.
  */
 function capitalizeFirstLetter(str) {
   return str[0].toUpperCase() + str.slice(1);
 }
+
 router.post("/clockin", async (req, res) => {
   try {
     const { userId, name, url, title } = req.body || {};
     if (!userId) return res.status(400).json({ error: "userId required" });
 
-    // Resolve a friendly name (prefer payload; fallback to Employee doc; else generic)
     let actorName = name;
     if (!actorName) {
       try {
@@ -109,7 +129,6 @@ router.post("/clockin", async (req, res) => {
     }
     actorName = actorName || "A teammate";
 
-    // Target all subscriptions except the actor's
     const subs = await PushSubscription.find({
       userId: { $ne: userId },
     }).lean();
@@ -123,64 +142,10 @@ router.post("/clockin", async (req, res) => {
       url: url || "/Attendance",
     });
 
-    let sent = 0;
-    if (subs.length === 1) {
-      try {
-        await webpush.sendNotification(
-          { endpoint: subs[0].endpoint, keys: subs[0].keys },
-          payload,
-          {
-            TTL: 600, // 10 min freshness
-            urgency: "high", // this is time-sensitive
-            topic: "clockin", // collapse key
-          }
-        );
-        sent = 1;
-      } catch (e) {
-        if (e.statusCode === 404 || e.statusCode === 410) {
-          await removeSubscriptionByEndpoint(subs[0].endpoint);
-          throw e
-        } else {
-          
-          console.error(
-            "Clock-in push error:",
-            e.statusCode,
-            e.body || e.message
-          );
-          throw e
-        }
-      }
-    } else {
-      for (const sub of subs) {
-        sent=15
-        try {
-          await webpush.sendNotification(
-            { endpoint: sub.endpoint, keys: sub.keys },
-            payload,
-            {
-              TTL: 600, // 10 min freshness
-              urgency: "high", // this is time-sensitive
-              topic: "clockin", // collapse key
-            }
-          );
-          
-        } catch (e) {
-          if (e.statusCode === 404 || e.statusCode === 410) {
-            await removeSubscriptionByEndpoint(sub.endpoint);
-          } else {
-            console.error(
-              "Clock-in push error:",
-              e.statusCode,
-              e.body || e.message
-            );
+    const promises = subs.map(sub => sendPushNotification(sub, payload));
+    await Promise.allSettled(promises);
 
-            throw e;
-          }
-        }
-      }
-    }
-
-    return res.json({ ok: true, count: sent, subs: subs, length: subs.length });
+    return res.json({ ok: true });
   } catch (e) {
     console.error("clockin route failed:", e);
     return res
