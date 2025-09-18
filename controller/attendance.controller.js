@@ -747,7 +747,7 @@ const createBulkAttendanceAction = async (req, res) => {
     req.body.payload;
   const { userId } = req.params;
   try {
-    og(req.body);
+   
     if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
       return res
         .status(400)
