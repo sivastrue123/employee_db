@@ -19,11 +19,12 @@ try {
 // === IMPLEMENTATIONS ===
 const saveSubscription = async ({ userId, subscription }) => {
   try {
-    await PushSubscription.findOneAndUpdate(
+    const res= await PushSubscription.findOneAndUpdate(
       { endpoint: subscription.endpoint },
       { userId, endpoint: subscription.endpoint, keys: subscription.keys },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+return res
   } catch (e) {
     console.error("Failed to save subscription:", e.message);
     // You might want to throw the error to be handled by the caller
@@ -86,8 +87,12 @@ router.post("/subscribe", async (req, res) => {
     if (!userId || !subscription?.endpoint || !subscription?.keys?.p256dh) {
       return res.status(400).json({ error: "Invalid payload" });
     }
-    await saveSubscription({ userId, subscription });
-    res.status(201).json({ ok: true });
+    const response =await saveSubscription({ userId, subscription });
+    if(!response) throw new Error("Failed to save subscription");
+    else{
+
+      res.status(201).json({ ok: true });
+    }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to save subscription" });
