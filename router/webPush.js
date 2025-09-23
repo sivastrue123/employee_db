@@ -2,14 +2,14 @@ import express from "express";
 import webpush from "web-push";
 import PushSubscription from "../model/pushNotification.model.js";
 import Employee from "../model/employee.model.js";
-
+import { PRIVATE_KEY,PUBLIC_KEY } from "../config.js";
 const router = express.Router();
 
 try {
   webpush.setVapidDetails(
     "mailto:vinoth.siva@ezofis.com",
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY
+    PUBLIC_KEY,
+    PRIVATE_KEY
   );
 } catch (e) {
   console.error("Failed to set VAPID details:", e.message);
