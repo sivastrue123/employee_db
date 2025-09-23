@@ -1,9 +1,15 @@
 import express from "express";
 import webpush from "web-push";
-import PushSubscription from "../model/pushNotification.model.js";
-import Employee from "../model/employee.model.js";
-import { PRIVATE_KEY,PUBLIC_KEY } from "../config.js";
+import { MongoClient } from "mongodb";
+import Employee from "../model/employee.model.js"; // Kept for the /clockin route
+import { URI, DATABASE_NAME, PUBLIC_KEY, PRIVATE_KEY } from "../config.js";
+
 const router = express.Router();
+
+if (!URI || !DATABASE_NAME) {
+  console.error("FATAL ERROR: URI and DATABASE_NAME must be defined in config.js");
+  // This would ideally stop the server from starting
+}
 
 try {
   webpush.setVapidDetails(
@@ -15,37 +21,48 @@ try {
   console.error("Failed to set VAPID details:", e.message);
 }
 
-// === IMPLEMENTATIONS ===
-// These functions will now work as intended because Mongoose has an active connection.
-const saveSubscription = async ({ userId, subscription }) => {
+// === IMPLEMENTATIONS (Using Native MongoDB Driver) ===
+
+const connectAndOperate = async (operation) => {
+  const client = new MongoClient(URI);
   try {
-    return await PushSubscription.findOneAndUpdate(
-      { endpoint: subscription.endpoint },
-      { userId, endpoint: subscription.endpoint, keys: subscription.keys },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-  } catch (e) {
-    console.error("Failed to save subscription:", e.message);
-    throw e;
+    await client.connect();
+    const db = client.db(DATABASE_NAME);
+    return await operation(db);
+  } finally {
+    await client.close();
   }
+};
+
+const saveSubscription = async ({ userId, subscription }) => {
+  return connectAndOperate(async (db) => {
+    const collection = db.collection("pushsubscriptions");
+    const query = { endpoint: subscription.endpoint };
+    const update = {
+      $set: {
+        userId,
+        keys: subscription.keys,
+        endpoint: subscription.endpoint,
+      },
+      $setOnInsert: { createdAt: new Date() }
+    };
+    const options = { upsert: true, returnDocument: 'after' };
+    return await collection.findOneAndUpdate(query, update, options);
+  });
 };
 
 const findSubscriptionsByUser = async (userId) => {
-  try {
-    return PushSubscription.find({ userId }).lean();
-  } catch (e) {
-    console.error("Failed to find subscriptions by user:", e.message);
-    throw e;
-  }
+  return connectAndOperate(async (db) => {
+    const collection = db.collection("pushsubscriptions");
+    return await collection.find({ userId }).toArray();
+  });
 };
 
 const removeSubscriptionByEndpoint = async (endpoint) => {
-  try {
-    await PushSubscription.deleteOne({ endpoint });
-  } catch (e) {
-    console.error("Failed to remove subscription:", e.message);
-    throw e;
-  }
+  return connectAndOperate(async (db) => {
+    const collection = db.collection("pushsubscriptions");
+    return await collection.deleteOne({ endpoint });
+  });
 };
 
 const sendPushNotification = async (subscription, payload) => {
@@ -87,7 +104,6 @@ router.post("/subscribe", async (req, res) => {
     if (!savedSubscription) {
         throw new Error("Failed to save subscription");
     }
-    // Cleaned up response for consistency
     res.status(201).json({ ok: true, subscription: savedSubscription });
   } catch (e) {
     console.error(e);
@@ -139,6 +155,7 @@ router.post("/clockin", async (req, res) => {
     let actorName = name;
     if (!actorName) {
       try {
+        // This part still uses the Mongoose Employee model as requested
         const emp = await Employee.findOne({ employee_id: userId })
           .select("name first_name last_name email")
           .lean();
@@ -178,3 +195,4 @@ router.post("/clockin", async (req, res) => {
 });
 
 export default router;
+
