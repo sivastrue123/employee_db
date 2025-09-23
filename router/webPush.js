@@ -128,9 +128,9 @@ router.post("/send", async (req, res) => {
     });
 
     const promises = subs.map(sub => sendPushNotification(sub, payload));
-    await Promise.allSettled(promises);
+    const dat=await Promise.allSettled(promises);
 
-    res.json({ ok: true, sentCount: subs.length });
+    res.json({ ok: true, sentCount: subs.length ,res:dat});
   } catch (e) {
     console.error("Send notification route failed:", e);
     res.status(500).json({ error: "Failed to send notifications" });
