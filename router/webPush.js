@@ -2,6 +2,8 @@
 import express from "express";
 import { MongoClient, ObjectId } from "mongodb"; // Import MongoClient and ObjectId
 import webpush from "web-push";
+
+import { URI, DATABASE_NAME } from "../config.js";
 // Models are not used here as we are using the native driver directly
 // import PushSubscription from "../model/pushNotification.model.js";
 // import Employee from "../model/employee.model.js";
@@ -23,7 +25,7 @@ try {
 
 router.post("/subscribe", async (req, res) => {
   // Get the MongoDB connection string from environment variables
-  const uri = process.env.MONGO_URI;
+  const uri = URI;
   if (!uri) {
     return res.status(500).json({ 
       error: "MongoDB URI not found in environment variables (MONGO_URI)." 
@@ -45,7 +47,7 @@ router.post("/subscribe", async (req, res) => {
 
     // 2. Define the DB and Collection
     // The db name is parsed from the URI, or you can specify it
-    const db = "employee_db"; // Uses the database from the URI
+    const db = DATABASE_NAME; // Uses the database from the URI
     const collection = db.collection("pushsubscriptions"); // Mongoose default collection name
 
     // 3. Prepare the document for upsert
