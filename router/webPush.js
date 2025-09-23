@@ -47,7 +47,7 @@ router.post("/subscribe", async (req, res) => {
 
     // 2. Define the DB and Collection
     // The db name is parsed from the URI, or you can specify it
-    const db = DATABASE_NAME; // Uses the database from the URI
+    const db = client.db(DATABASE_NAME); // Uclses the database from the URI
     const collection = db.collection("pushsubscriptions"); // Mongoose default collection name
 
     // 3. Prepare the document for upsert
