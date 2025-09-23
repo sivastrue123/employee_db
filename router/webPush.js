@@ -90,8 +90,8 @@ router.post("/subscribe", async (req, res) => {
     const response =await saveSubscription({ userId, subscription });
     if(!response) throw new Error("Failed to save subscription");
     else{
-
-      res.status(201).json({ ok: true });
+    
+      res.status(201).json({ ok: true,mes:response });
     }
   } catch (e) {
     console.error(e);
