@@ -96,10 +96,12 @@ async function saveSubscription({ userId, subscription }) {
   return unwrap(result);
 }
 
-async function findSubscriptionsByUser(userId) {
+async function findSubscriptionsByUser(userId, isAttendance) {
   const db = await getDb();
   const collection = db.collection("pushsubscriptions");
-  return collection.find({ userId }).toArray();
+
+  const query = !isAttendance ? { userId } : { userId: { $ne: userId } };
+  return collection.find(query).toArray();
 }
 
 async function removeSubscriptionByEndpoint(endpoint) {
@@ -178,12 +180,10 @@ router.post("/subscribe", async (req, res) => {
       !subscription?.keys?.p256dh ||
       !subscription?.keys?.auth
     ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Invalid payload: userId, endpoint, keys.p256dh, keys.auth are required",
-        });
+      return res.status(400).json({
+        error:
+          "Invalid payload: userId, endpoint, keys.p256dh, keys.auth are required",
+      });
     }
 
     const saved = await saveSubscription({ userId, subscription });
@@ -199,7 +199,7 @@ router.post("/send", async (req, res) => {
     const { userId, title, body, url } = req.body || {};
     if (!userId) return res.status(400).json({ error: "userId required" });
 
-    const subs = await findSubscriptionsByUser(userId);
+    const subs = await findSubscriptionsByUser(userId, false);
     if (subs.length === 0) {
       return res.json({
         ok: true,
@@ -266,7 +266,7 @@ router.post("/clockin", async (req, res) => {
     }
     actorName = actorName || "A teammate";
 
-    const subs = await findSubscriptionsByUser(userId);
+    const subs = await findSubscriptionsByUser(userId, true);
     if (subs.length === 0) {
       return res.json({ ok: true, count: 0, note: "no recipients found" });
     }
