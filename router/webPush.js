@@ -1,113 +1,194 @@
+// routes/push.router.js
 import express from "express";
 import webpush from "web-push";
 import { MongoClient } from "mongodb";
-import Employee from "../model/employee.model.js"; // Kept for the /clockin route
-import { URI, DATABASE_NAME, PUBLIC_KEY, PRIVATE_KEY } from "../config.js";
+import Employee from "../model/employee.model.js"; // retained for /clockin
+import {
+  URI,
+  DATABASE_NAME,
+  PUBLIC_KEY,
+  PRIVATE_KEY,
+} from "../config.js";
 
-const router = express.Router();
-
+// -----------------------------
+// Guardrails / Config hygiene
+// -----------------------------
 if (!URI || !DATABASE_NAME) {
-  console.error("FATAL ERROR: URI and DATABASE_NAME must be defined in config.js");
-  // This would ideally stop the server from starting
+  // Fail fast in prod; don't boot a half-configured service
+  throw new Error("FATAL: URI and DATABASE_NAME must be defined in config.js");
+}
+
+if (!PUBLIC_KEY || !PRIVATE_KEY) {
+  // Web Push mandates VAPID; missing keys = predictable 401/403 in prod
+  throw new Error("FATAL: PUBLIC_KEY and PRIVATE_KEY must be defined for web-push VAPID");
 }
 
 try {
   webpush.setVapidDetails(
-    "mailto:vinoth.siva@ezofis.com",
+    // Use a neutral mailbox; align with your domain for DMARC alignment if possible
+    "mailto:notifications@yourdomain.com",
     PUBLIC_KEY,
     PRIVATE_KEY
   );
 } catch (e) {
-  console.error("Failed to set VAPID details:", e.message);
+  // Fail loud — bad keys shouldn’t allow the app to start
+  throw new Error(`FATAL: Failed to set VAPID details: ${e.message}`);
 }
 
-// === IMPLEMENTATIONS (Using Native MongoDB Driver) ===
+const router = express.Router();
 
-const connectAndOperate = async (operation) => {
-  const client = new MongoClient(URI);
-  try {
-    await client.connect();
-    const db = client.db(DATABASE_NAME);
-    return await operation(db);
-  } finally {
-    await client.close();
-  }
-};
-
-const saveSubscription = async ({ userId, subscription }) => {
-  return connectAndOperate(async (db) => {
-    const collection = db.collection("pushsubscriptions");
-    const query = { endpoint: subscription.endpoint };
-    const update = {
-      $set: {
-        userId,
-        keys: subscription.keys,
-        endpoint: subscription.endpoint,
-      },
-      $setOnInsert: { createdAt: new Date() }
-    };
-    const options = { upsert: true, returnDocument: 'after' };
-    return await collection.findOneAndUpdate(query, update, options);
+// -----------------------------
+// Mongo client: single instance
+// -----------------------------
+/**
+ * Reuse one client across requests to avoid exhausting sockets in prod.
+ * Also creates indexes once for idempotent schema hygiene.
+ */
+let _client;
+let _db;
+async function getDb() {
+  if (_db) return _db;
+  _client = new MongoClient(URI, {
+    // Hardening for prod networks
+    maxPoolSize: 20,
+    minPoolSize: 2,
+    serverSelectionTimeoutMS: 8000,
+    connectTimeoutMS: 8000,
+    socketTimeoutMS: 20000,
   });
-};
+  await _client.connect();
+  _db = _client.db(DATABASE_NAME);
 
-const findSubscriptionsByUser = async (userId) => {
-  return connectAndOperate(async (db) => {
-    const collection = db.collection("pushsubscriptions");
-    return await collection.find({ userId }).toArray();
-  });
-};
+  // One-time indexes (idempotent)
+  const col = _db.collection("pushsubscriptions");
+  await col.createIndex({ endpoint: 1 }, { unique: true });
+  await col.createIndex({ userId: 1 });
 
-const removeSubscriptionByEndpoint = async (endpoint) => {
-  return connectAndOperate(async (db) => {
-    const collection = db.collection("pushsubscriptions");
-    return await collection.deleteOne({ endpoint });
-  });
-};
+  return _db;
+}
 
-const sendPushNotification = async (subscription, payload) => {
+// Helper to unwrap Mongo v4/v5 findOneAndUpdate result
+const unwrap = (res) => res?.value ?? res;
+
+// -----------------------------
+// Data access
+// -----------------------------
+async function saveSubscription({ userId, subscription }) {
+  const db = await getDb();
+  const collection = db.collection("pushsubscriptions");
+  const doc = {
+    userId,
+    endpoint: subscription.endpoint,
+    // Store full keyset for fidelity; many providers require both keys
+    keys: {
+      p256dh: subscription?.keys?.p256dh,
+      auth: subscription?.keys?.auth,
+    },
+    expirationTime: subscription?.expirationTime ?? null,
+    updatedAt: new Date(),
+  };
+
+  const result = await collection.findOneAndUpdate(
+    { endpoint: subscription.endpoint },
+    {
+      $set: doc,
+      $setOnInsert: { createdAt: new Date() },
+    },
+    { upsert: true, returnDocument: "after" }
+  );
+  return unwrap(result);
+}
+
+async function findSubscriptionsByUser(userId) {
+  const db = await getDb();
+  const collection = db.collection("pushsubscriptions");
+  return collection.find({ userId }).toArray();
+}
+
+async function removeSubscriptionByEndpoint(endpoint) {
+  const db = await getDb();
+  const collection = db.collection("pushsubscriptions");
+  await collection.deleteOne({ endpoint });
+}
+
+// -----------------------------
+// Push transport
+// -----------------------------
+async function sendPushNotification(subscriptionLike, payload) {
+  // Ensure we only send the shape the web-push lib expects
+  const subscription = {
+    endpoint: subscriptionLike.endpoint,
+    keys: {
+      p256dh: subscriptionLike?.keys?.p256dh,
+      auth: subscriptionLike?.keys?.auth,
+    },
+    expirationTime: subscriptionLike?.expirationTime ?? null,
+  };
+
   try {
     await webpush.sendNotification(subscription, payload, {
       TTL: 600,
       urgency: "high",
       topic: "clockin",
     });
-    return true; // Success
+    return { ok: true, endpoint: subscription.endpoint };
   } catch (e) {
-    if (e.statusCode === 401 || e.statusCode === 403) {
-      console.error(
-        `[PUSH ERROR] Unauthorized/Forbidden. Deleting subscription.`,
-        e.body || e.message
-      );
-      await removeSubscriptionByEndpoint(subscription.endpoint);
-    } else if (e.statusCode === 404 || e.statusCode === 410) {
-      console.warn(
-        `[PUSH WARNING] Subscription Not Found/Gone. Deleting subscription.`,
-        subscription.endpoint
-      );
-      await removeSubscriptionByEndpoint(subscription.endpoint);
-    } else {
-      console.error(`[PUSH ERROR] Unexpected error: ${e.statusCode}`, e.body || e.message);
+    // Smart auto-healing for dead/invalid subs
+    const code = e?.statusCode;
+    if (code === 401 || code === 403 || code === 404 || code === 410) {
+      // 401/403: VAPID/cred issue or client revoked; 404/410: gone
+      await removeSubscriptionByEndpoint(subscription.endpoint).catch(() => {});
     }
-    return false; // Failure
+    return {
+      ok: false,
+      endpoint: subscription.endpoint,
+      statusCode: code,
+      error: e?.body || e?.message || "unknown push error",
+    };
   }
-};
+}
 
-// === ROUTES ===
+// -----------------------------
+// Utilities
+// -----------------------------
+function capitalizeFirstLetter(str) {
+  if (typeof str !== "string" || !str.length) return "";
+  return str[0].toUpperCase() + str.slice(1);
+}
+
+function requireJson(req, res, next) {
+  // Prevent subtle prod issues when body parsers are misconfigured
+  const ctype = req.headers["content-type"] || "";
+  if (!ctype.includes("application/json")) {
+    // Not fatal, but strongly signal expected contract
+    res.set("X-Warning", "Expected application/json content-type");
+  }
+  next();
+}
+
+router.use(requireJson);
+
+// -----------------------------
+// Routes
+// -----------------------------
 router.post("/subscribe", async (req, res) => {
   try {
     const { userId, subscription } = req.body || {};
-    if (!userId || !subscription?.endpoint || !subscription?.keys?.p256dh) {
-      return res.status(400).json({ error: "Invalid payload" });
+    // Tight validation: both keys are required for most push services
+    if (
+      !userId ||
+      !subscription?.endpoint ||
+      !subscription?.keys?.p256dh ||
+      !subscription?.keys?.auth
+    ) {
+      return res.status(400).json({ error: "Invalid payload: userId, endpoint, keys.p256dh, keys.auth are required" });
     }
-    const savedSubscription = await saveSubscription({ userId, subscription });
-    if (!savedSubscription) {
-        throw new Error("Failed to save subscription");
-    }
-    res.status(201).json({ ok: true, subscription: savedSubscription });
+
+    const saved = await saveSubscription({ userId, subscription });
+    return res.status(201).json({ ok: true, subscription: saved });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Failed to save subscription" });
+    console.error("subscribe failed:", e);
+    return res.status(500).json({ error: "Failed to save subscription" });
   }
 });
 
@@ -117,8 +198,8 @@ router.post("/send", async (req, res) => {
     if (!userId) return res.status(400).json({ error: "userId required" });
 
     const subs = await findSubscriptionsByUser(userId);
-    if (!subs.length) {
-      return res.json({ ok: true, count: 0, note: "no subscriptions found" });
+    if (subs.length === 0) {
+      return res.json({ ok: true, sentCount: 0, note: "no subscriptions found" });
     }
 
     const payload = JSON.stringify({
@@ -127,25 +208,33 @@ router.post("/send", async (req, res) => {
       url: url || "/",
     });
 
-    const promises = subs.map(sub => sendPushNotification(sub, payload));
-    const dat=await Promise.allSettled(promises);
+    const results = await Promise.allSettled(
+      subs.map((sub) => sendPushNotification(sub, payload))
+    );
 
-    res.json({ ok: true, sentCount: subs.length ,res:dat});
+    const successes = results
+      .filter((r) => r.status === "fulfilled" && r.value?.ok)
+      .map((r) => r.value?.endpoint);
+    const failures = results
+      .filter((r) => r.status === "fulfilled" && !r.value?.ok)
+      .map((r) => r.value);
+    const rejections = results
+      .filter((r) => r.status === "rejected")
+      .map((r) => ({ ok: false, error: r.reason?.message || "rejected" }));
+
+    return res.json({
+      ok: true,
+      sentCount: successes.length,
+      failCount: failures.length + rejections.length,
+      successes,
+      failures,
+      rejections,
+    });
   } catch (e) {
-    console.error("Send notification route failed:", e);
-    res.status(500).json({ error: "Failed to send notifications" });
+    console.error("send failed:", e);
+    return res.status(500).json({ error: "Failed to send notifications" });
   }
 });
-
-function capitalizeFirstLetter(str) {
-  try {
-    if (!str) return "";
-    return str[0].toUpperCase() + str.slice(1);
-  } catch (e) {
-    console.error("Capitalize function failed:", e);
-    return str;
-  }
-}
 
 router.post("/clockin", async (req, res) => {
   try {
@@ -155,7 +244,6 @@ router.post("/clockin", async (req, res) => {
     let actorName = name;
     if (!actorName) {
       try {
-        // This part still uses the Mongoose Employee model as requested
         const emp = await Employee.findOne({ employee_id: userId })
           .select("name first_name last_name email")
           .lean();
@@ -163,36 +251,47 @@ router.post("/clockin", async (req, res) => {
           actorName =
             emp.name ||
             `${emp.first_name || ""} ${emp.last_name || ""}`.trim() ||
-            emp.email;
+            emp.email ||
+            null;
         }
       } catch (e) {
-        console.warn("clockin: name lookup failed", e?.message);
+        console.warn("clockin: name lookup failed:", e?.message);
       }
     }
     actorName = actorName || "A teammate";
 
     const subs = await findSubscriptionsByUser(userId);
-    if (!subs.length) {
+    if (subs.length === 0) {
       return res.json({ ok: true, count: 0, note: "no recipients found" });
     }
 
+    const normalizedTitle = capitalizeFirstLetter(title || "Clock-In");
+    const action = title ? title.toLowerCase() : "clocked in";
+
     const payload = JSON.stringify({
-      title: capitalizeFirstLetter(title) || "Clock-In",
-      body: `${actorName} just ${title ? title.toLowerCase() : "clocked in"}.`,
+      title: normalizedTitle,
+      body: `${actorName} just ${action}.`,
       url: url || "/Attendance",
     });
 
-    const promises = subs.map(sub => sendPushNotification(sub, payload));
-    await Promise.allSettled(promises);
+    const results = await Promise.allSettled(
+      subs.map((s) => sendPushNotification(s, payload))
+    );
 
-    return res.json({ ok: true });
+    const sent = results.filter((r) => r.status === "fulfilled" && r.value?.ok).length;
+
+    return res.json({ ok: true, sent });
   } catch (e) {
     console.error("clockin route failed:", e);
-    return res
-      .status(500)
-      .json({ error: "Failed to broadcast clock-in", message: e.message });
+    return res.status(500).json({ error: "Failed to broadcast clock-in", message: e.message });
   }
 });
 
 export default router;
 
+// -----------------------------
+// Optional: graceful shutdown hook (register in your server entrypoint)
+// -----------------------------
+// process.on("SIGTERM", async () => {
+//   try { await _client?.close(); } finally { process.exit(0); }
+// });
