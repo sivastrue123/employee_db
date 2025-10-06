@@ -3,12 +3,7 @@ import express from "express";
 import webpush from "web-push";
 import { MongoClient } from "mongodb";
 import Employee from "../model/employee.model.js"; // retained for /clockin
-import {
-  URI,
-  DATABASE_NAME,
-  PUBLIC_KEY,
-  PRIVATE_KEY,
-} from "../config.js";
+import { URI, DATABASE_NAME, PUBLIC_KEY, PRIVATE_KEY } from "../config.js";
 
 // -----------------------------
 // Guardrails / Config hygiene
@@ -20,15 +15,17 @@ if (!URI || !DATABASE_NAME) {
 
 if (!PUBLIC_KEY || !PRIVATE_KEY) {
   // Web Push mandates VAPID; missing keys = predictable 401/403 in prod
-  throw new Error("FATAL: PUBLIC_KEY and PRIVATE_KEY must be defined for web-push VAPID");
+  throw new Error(
+    "FATAL: PUBLIC_KEY and PRIVATE_KEY must be defined for web-push VAPID"
+  );
 }
 
 try {
   webpush.setVapidDetails(
     // Use a neutral mailbox; align with your domain for DMARC alignment if possible
-    "mailto:notifications@yourdomain.com",
-    PUBLIC_KEY,
-    PRIVATE_KEY
+    "mailto:sivav2535@gmail.com",
+    `BFMSTQdSh9Dskh8lUvel5mntPdyDBu49UteVmNwkUf1nEpLEsBR40WSYktsVL9XVQNjV-yM79E1c26X53MkQcRQ`,
+    `GH1AMaXAkfKnQQr07b-7USN5NTzO3CCOZeGaJN174g4`
   );
 } catch (e) {
   // Fail loud — bad keys shouldn’t allow the app to start
@@ -181,7 +178,12 @@ router.post("/subscribe", async (req, res) => {
       !subscription?.keys?.p256dh ||
       !subscription?.keys?.auth
     ) {
-      return res.status(400).json({ error: "Invalid payload: userId, endpoint, keys.p256dh, keys.auth are required" });
+      return res
+        .status(400)
+        .json({
+          error:
+            "Invalid payload: userId, endpoint, keys.p256dh, keys.auth are required",
+        });
     }
 
     const saved = await saveSubscription({ userId, subscription });
@@ -199,7 +201,11 @@ router.post("/send", async (req, res) => {
 
     const subs = await findSubscriptionsByUser(userId);
     if (subs.length === 0) {
-      return res.json({ ok: true, sentCount: 0, note: "no subscriptions found" });
+      return res.json({
+        ok: true,
+        sentCount: 0,
+        note: "no subscriptions found",
+      });
     }
 
     const payload = JSON.stringify({
@@ -278,12 +284,16 @@ router.post("/clockin", async (req, res) => {
       subs.map((s) => sendPushNotification(s, payload))
     );
 
-    const sent = results.filter((r) => r.status === "fulfilled" && r.value?.ok).length;
+    const sent = results.filter(
+      (r) => r.status === "fulfilled" && r.value?.ok
+    ).length;
 
     return res.json({ ok: true, sent });
   } catch (e) {
     console.error("clockin route failed:", e);
-    return res.status(500).json({ error: "Failed to broadcast clock-in", message: e.message });
+    return res
+      .status(500)
+      .json({ error: "Failed to broadcast clock-in", message: e.message });
   }
 });
 
