@@ -464,7 +464,7 @@ const getAttendanceByEmployee = async (req, res) => {
   const { employeeId } = req.query;
   try {
     const attendanceRecords = await Attendance.find({ employeeId })
-      .sort({ date: -1 })
+      .sort({ createdAt: -1 })
       .lean();
 
     if (attendanceRecords.length === 0) {
