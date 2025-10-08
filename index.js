@@ -41,6 +41,7 @@ const startingServer = async () => {
       console.log(
         `Access the Employee API at http://localhost:${PORT}/api/employee`
       );
+      console.log("")
       console.log(`Try: http://localhost:${PORT}/api/health`);
     });
   } catch (error) {
