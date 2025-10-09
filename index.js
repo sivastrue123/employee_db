@@ -8,6 +8,7 @@ import clientRoutes from "./router/clientRouter.js";
 import cors from "cors";
 import pushRoutes from "./router/webPush.js";
 import worklogRoutes from "./router/worklog.routes.js";
+import amcRoutes from "./router/amcRouter.js"
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -27,6 +28,7 @@ app.use("/api/attendance", attendanceRoutes);
 app.use("/api/client", clientRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/worklog", worklogRoutes);
+app.use("/api/amcInfo", amcRoutes);
 app.get("/api/health", (_req, res) => res.status(200).json({ status: "ok" }));
 app.get("/", (_req, res) => res.status(200).send("OK"));
 const startingServer = async () => {
