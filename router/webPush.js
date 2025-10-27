@@ -13,13 +13,6 @@ if (!URI || !DATABASE_NAME) {
   throw new Error("FATAL: URI and DATABASE_NAME must be defined in config.js");
 }
 
-if (!PUBLIC_KEY || !PRIVATE_KEY) {
-  // Web Push mandates VAPID; missing keys = predictable 401/403 in prod
-  throw new Error(
-    "FATAL: PUBLIC_KEY and PRIVATE_KEY must be defined for web-push VAPID"
-  );
-}
-
 try {
   webpush.setVapidDetails(
     // Use a neutral mailbox; align with your domain for DMARC alignment if possible

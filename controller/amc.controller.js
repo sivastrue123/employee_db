@@ -173,11 +173,15 @@ export const getAmcList = async (req, res) => {
         );
         
         // --- Stage 2: Filtering (Searching) ---
-        if (searchTerm) {
-            // Case-insensitive regex search on the dealer's name
+       if (searchTerm) {
+            const searchRegex = { $regex: searchTerm, $options: 'i' };
+            // Use $or to match the search term in EITHER the dealer name OR the customer name
             pipeline.push({
                 $match: {
-                    'dealerInfo.name': { $regex: searchTerm, $options: 'i' }
+                    $or: [
+                        { 'dealerInfo.name': searchRegex },
+                        { 'customerInfo.name': searchRegex } // Search by customer name added
+                    ]
                 }
             });
         }
