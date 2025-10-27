@@ -142,29 +142,85 @@ export const updateAmc = async (req, res) => {
  */
 export const getAmcList = async (req, res) => {
     try {
+        // Pagination Parameters
         const page = parseInt(req.query.page) || 1; // Default to page 1
         const limit = parseInt(req.query.limit) || 10; // Default to 10 items per page
         const skip = (page - 1) * limit;
 
-        // 1. Get total number of documents (for pagination metadata)
-        const totalDocs = await AmcInfo.countDocuments();
-        
-        // 2. Fetch paginated data
-        const amcList = await AmcInfo.find()
-            .populate('dealer customer')
-            .skip(skip) // Skip records based on page number
-            .limit(limit) // Limit records based on page size
-            .lean();
+        // Search and Sorting Parameters
+        // searchTerm will be used to filter by dealer's name
+        const searchTerm = req.query.search || ''; 
+        // sortBy: field to sort by (e.g., 'amcFrom', 'dealer', 'status'). Default to amcFrom.
+        const sortBy = req.query.sortBy || 'amcFrom'; 
+        // sortOrder: 'asc' or 'desc'. Default to descending ('-1').
+        const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1; 
 
-        // Map the results to match the frontend's expected AmcInfo interface
+        // 1. Define the Mongoose Aggregation Pipeline
+        // Aggregation is used because we need to:
+        //    a) Populate (lookup) dealer and customer info
+        //    b) Filter based on the populated dealer's name (dealerName)
+        //    c) Sort by the populated dealer's name or other fields
+
+        const pipeline = [];
+
+        // --- Stage 1: Populate 'dealer' and 'customer' ---
+        // Using $lookup to join with 'dealers' and 'customers' collections
+        pipeline.push(
+            { $lookup: { from: 'dealers', localField: 'dealer', foreignField: '_id', as: 'dealerInfo' } },
+            { $unwind: { path: '$dealerInfo', preserveNullAndEmptyArrays: true } },
+            { $lookup: { from: 'customers', localField: 'customer', foreignField: '_id', as: 'customerInfo' } },
+            { $unwind: { path: '$customerInfo', preserveNullAndEmptyArrays: true } }
+        );
+        
+        // --- Stage 2: Filtering (Searching) ---
+        if (searchTerm) {
+            // Case-insensitive regex search on the dealer's name
+            pipeline.push({
+                $match: {
+                    'dealerInfo.name': { $regex: searchTerm, $options: 'i' }
+                }
+            });
+        }
+        
+        // --- Stage 3: Sorting ---
+        let sortField = sortBy;
+        // If sorting by a populated field, use the correct path
+        if (sortBy === 'dealerName') {
+            sortField = 'dealerInfo.name';
+        } else if (sortBy === 'customerName') {
+             sortField = 'customerInfo.name';
+        }
+        
+        const sortStage = {};
+        sortStage[sortField] = sortOrder;
+        pipeline.push({ $sort: sortStage });
+
+        // --- Stage 4 & 5: Pagination (Counting and Limiting) ---
+
+        // 1. Get total number of documents after filtering
+        const totalDocsResult = await AmcInfo.aggregate([...pipeline, { $count: 'total' }]);
+        const totalDocs = totalDocsResult.length > 0 ? totalDocsResult[0].total : 0;
+        
+        // 2. Add skip and limit for fetching the paginated data
+        pipeline.push(
+            { $skip: skip },
+            { $limit: limit }
+        );
+
+        // 3. Fetch paginated and filtered data
+        const amcList = await AmcInfo.aggregate(pipeline);
+
+        // --- Stage 6: Formatting the Results ---
         const formattedList = amcList.map(amc => ({
             id: amc._id.toString(),
-            dealerName: amc.dealer.name,
-            customerName: amc.customer.name,
+            // Use the info from the lookup results
+            dealerName: amc.dealerInfo ? amc.dealerInfo.name : 'N/A', 
+            customerName: amc.customerInfo ? amc.customerInfo.name : 'N/A', 
             description: amc.description,
             status: amc.status,
-            amcFrom: amc.amcFrom.toISOString().split('T')[0],
-            amcTo: amc.amcTo.toISOString().split('T')[0],
+            // Date formatting
+            amcFrom: amc.amcFrom ? new Date(amc.amcFrom).toISOString().split('T')[0] : null,
+            amcTo: amc.amcTo ? new Date(amc.amcTo).toISOString().split('T')[0] : null,
             amcMonth: amc.amcMonth,
         }));
 
@@ -176,10 +232,14 @@ export const getAmcList = async (req, res) => {
                 totalPages: Math.ceil(totalDocs / limit),
                 currentPage: page,
                 pageSize: limit,
+                // Include search/sort params in meta for clarity
+                searchTerm,
+                sortBy,
+                sortOrder: sortOrder === 1 ? 'asc' : 'desc'
             }
         });
     } catch (error) {
-        console.error('Error fetching AMC list:', error);
+        console.error('Error fetching AMC list with search/sort:', error);
         res.status(500).json({ message: 'Failed to fetch AMC list.' });
     }
 };
