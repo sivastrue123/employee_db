@@ -9,7 +9,7 @@ import {
   createBulkAttendanceAction,
   updateOTStatus,
 } from "../controller/attendance.controller.js";
-
+import { OnLeaveNotification } from "./webPush.js";
 const router = Router();
 
 router.post("/createAttendance", createAttendance, editAttendance);
@@ -19,5 +19,5 @@ router.put("/editAttendance/:attendanceId", editAttendance);
 router.patch("/editAttendance/:attendanceId/ot-status", updateOTStatus);
 router.delete("/deleteAttendance/:attendanceId", deleteAttendance);
 router.get("/getUserAttendanceByDate", getUserAttendanceByDate);
-router.post("/MoreActions/:userId", createBulkAttendanceAction);
+router.post("/MoreActions/:userId", createBulkAttendanceAction,OnLeaveNotification);
 export default router;

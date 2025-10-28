@@ -89,11 +89,16 @@ async function saveSubscription({ userId, subscription }) {
   return unwrap(result);
 }
 
-async function findSubscriptionsByUser(userId, isAttendance) {
+async function findSubscriptionsByUser(userId, isAttendance,isBulkAction) {
   const db = await getDb();
   const collection = db.collection("pushsubscriptions");
+let query;
+if(isBulkAction){
+query = { userId: { $nin: userId } };
+}else{
 
-  const query = !isAttendance ? { userId } : { userId: { $ne: userId } };
+ query = !isAttendance ? { userId } : { userId: { $ne: userId } };
+}
   return collection.find(query).toArray();
 }
 
@@ -192,7 +197,7 @@ router.post("/send", async (req, res) => {
     const { userId, title, body, url } = req.body || {};
     if (!userId) return res.status(400).json({ error: "userId required" });
 
-    const subs = await findSubscriptionsByUser(userId, false);
+    const subs = await findSubscriptionsByUser(userId, false,false);
     if (subs.length === 0) {
       return res.json({
         ok: true,
@@ -259,7 +264,7 @@ router.post("/clockin", async (req, res) => {
     }
     actorName = actorName || "A teammate";
 
-    const subs = await findSubscriptionsByUser(userId, true);
+    const subs = await findSubscriptionsByUser(userId, true,false);
     if (subs.length === 0) {
       return res.json({ ok: true, count: 0, note: "no recipients found" });
     }
@@ -290,6 +295,84 @@ router.post("/clockin", async (req, res) => {
   }
 });
 
+
+export const OnLeaveNotification =  async (req, res) => {
+  try {
+    // userIds is expected to be an array of employee IDs on leave today
+    const {  employeeIds, url } = req.body.payload || {};
+
+
+console.log("body",req.body,employeeIds,"data")
+    // Validate input
+    if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
+      return res.status(400).json({ error: "Array of 'userIds' required" });
+    }
+
+    // Fetch names for better notification text
+    let onLeaveNames = [];
+    try {
+      const employees = await Employee.find({ employee_id: { $in: employeeIds } })
+        .select("name first_name last_name email")
+        .lean();
+
+      onLeaveNames = employees.map(emp => 
+        emp.name || 
+        `${emp.first_name || ""} ${emp.last_name || ""}`.trim() || 
+        emp.email || 
+        `Employee ${emp.employee_id}`
+      );
+    } catch (e) {
+      console.warn("onleave: name lookup failed:", e?.message);
+      // Fallback to a generic name list
+      onLeaveNames = employeeIds.map(id => `Employee ${id}`);
+    }
+    
+    // Format the names for the notification body
+    let nameList;
+    if (onLeaveNames.length === 1) {
+      nameList = onLeaveNames[0];
+    } else if (onLeaveNames.length === 2) {
+      nameList = onLeaveNames.join(" and ");
+    } else {
+      // Oxford comma style for 3+ people
+      nameList = onLeaveNames.slice(0, -1).join(", ") + `, and ${onLeaveNames.slice(-1)}`;
+    }
+
+    // Find subscriptions for ALL users *except* those on the leave list
+    const subs = await findSubscriptionsByUser(employeeIds, false,true);
+    
+    if (subs.length === 0) {
+      return res.json({ ok: true, count: 0, note: "no recipients found" });
+    }
+
+    const title = "Today's Leave Update";
+    const body = `${nameList} ${onLeaveNames.length > 1 ? 'are' : 'is'} on leave today. Please plan accordingly.`;
+    
+    const payload = JSON.stringify({
+      title: title,
+      body: body,
+      url: url || "/Attendance",
+    });
+
+    // Send notifications
+    const results = await Promise.allSettled(
+      subs.map((s) => sendPushNotification(s, payload))
+    );
+
+    const sent = results.filter(
+      (r) => r.status === "fulfilled" && r.value?.ok
+    ).length;
+
+    return res.json({ ok: true, sent, onLeaveCount: employeeIds.length });
+  } catch (e) {
+    console.error("onleave route failed:", e);
+    return res
+      .status(500)
+      .json({ error: "Failed to broadcast leave update", message: e.message });
+  }
+}
+
+router.post("/onleave",OnLeaveNotification);
 export default router;
 
 // -----------------------------

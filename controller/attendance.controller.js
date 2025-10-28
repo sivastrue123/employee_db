@@ -742,7 +742,7 @@ const deleteAttendance = async (req, res) => {
   }
 };
 
-const createBulkAttendanceAction = async (req, res) => {
+const createBulkAttendanceAction = async (req, res,next) => {
   const { employeeIds, reason, status, date, clockIn, clockOut } =
     req.body.payload;
   const { userId } = req.params;
@@ -820,6 +820,13 @@ const createBulkAttendanceAction = async (req, res) => {
             reason: "Duplicate (employeeId, date) violates unique index",
           };
         }) || [];
+
+    if(createdCount>0 &&status=="Absent" ){
+      console.log("it is haapening")
+      next();
+    }else{
+
+
     return res.status(createdCount > 0 ? 201 : 409).json({
       message:
         createdCount > 0
@@ -836,6 +843,7 @@ const createBulkAttendanceAction = async (req, res) => {
         conflictItems: conflicts,
       },
     });
+        }
   } catch (error) {
     if (error?.code === 11000) {
       return res.status(409).json({
