@@ -117,7 +117,7 @@ const editEmployee = async (req, res) => {
       role,
     } = req.body;
 
-    if (!emplId) {
+    if (!empId) {
       return res
         .status(400)
         .json({ message: "Employee ID is required for editing." });
