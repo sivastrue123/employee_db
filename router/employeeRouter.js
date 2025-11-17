@@ -4,13 +4,14 @@ import {
   createEmployee,
   editEmployee,
   getAllEmployee,
-  getDashboardData,
+  getDashboardData,getTodaysBirthdays,
 } from "../controller/employee.controller.js";
 import { checkSubscription } from "../middleware/checkSubscription.js";
 const router = Router();
 
 router.post("/addEmployee", createEmployee);
 router.get("/getAllEmployee", getAllEmployee);
+router.get("/getTodaysBirthdays", getTodaysBirthdays);
 router.patch("/editEmployee/:empId", editEmployee);
 router.get("/checkEmail", checkSubscription, checkEmail);
 router.get("/getDashboardData", getDashboardData);

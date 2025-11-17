@@ -69,6 +69,14 @@ const employeeSchema = new mongoose.Schema(
       type: Date,
       required: [true, "Hire date is required"],
     },
+    birth_date: {
+      type: Date,
+      required: [true, "Birth date is required"],
+    },
+    profile_imageFile: {
+      type: String,
+      required: [true, "Image is required"],
+    },
     hourly_rate: {
       type: Number,
       required: [true, "Hourly rate is required"],

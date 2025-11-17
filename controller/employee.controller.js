@@ -19,7 +19,7 @@ const createEmployee = async (req, res) => {
       profile_image,
       status,
       employee_id,
-      role,
+      role, birth_date, profile_imageFile,
     } = req.body;
     if (
       !first_name ||
@@ -29,7 +29,7 @@ const createEmployee = async (req, res) => {
       !position ||
       !hire_date ||
       !hourly_rate ||
-      !employee_id
+      !employee_id || !birth_date || !profile_imageFile
     ) {
       return res.status(400).json({ message: "All Fields are required" });
     }
@@ -40,7 +40,7 @@ const createEmployee = async (req, res) => {
     if (existingEmployee) {
       return res.status(409).json({ message: "Employe id  already in use" });
     }
-   
+
     if (existingEmployee?.email === String(email)) {
       return res.status(409).json({ message: "email Id already exists" });
     }
@@ -55,7 +55,7 @@ const createEmployee = async (req, res) => {
       hourly_rate,
       status,
       profile_image,
-      employee_id,
+      employee_id, birth_date, profile_imageFile,
       role: role || "employee",
     });
 
@@ -72,7 +72,7 @@ const createEmployee = async (req, res) => {
 
 
 // controllers/employeeController.js
- const checkEmail = async (req, res) => {
+const checkEmail = async (req, res) => {
   try {
     return res.status(200).json({
       exists: true,
@@ -99,6 +99,37 @@ const getAllEmployee = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+const getTodaysBirthdays = async (req, res) => {
+
+  try {
+    const today = new Date();
+    const month = today.getMonth() + 1;
+    const day = today.getDate();
+
+    const employees = await Employee.aggregate([
+      { $match: { isDeleted: false } },
+
+      {
+        $addFields: {
+          birth: { $dateToParts: { date: "$birth_date", timezone: "UTC" } }
+        }
+      },
+      {
+        $match: {
+          "birth.month": month,
+          "birth.day": day
+        }
+      }
+    ]);
+
+    res.status(200).json(employees);
+  } catch (error) {
+    console.error("Error fetching today's birthdays:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+
 const editEmployee = async (req, res) => {
   try {
     const { empId } = req.params;
@@ -114,7 +145,7 @@ const editEmployee = async (req, res) => {
       profile_image,
       status,
       employee_id,
-      role,
+      role, birth_date, profile_imageFile,
     } = req.body;
 
     if (!empId) {
@@ -131,7 +162,7 @@ const editEmployee = async (req, res) => {
       !hire_date ||
       !hourly_rate ||
       !employee_id ||
-      !role
+      !role || !birth_date || profile_imageFile == ""
     ) {
       return res.status(400).json({ message: "All Fields are required" });
     }
@@ -151,7 +182,7 @@ const editEmployee = async (req, res) => {
           profile_image,
           status,
           employee_id,
-          role,
+          role, birth_date, profile_imageFile,
         },
       },
       { new: true, runValidators: true }
@@ -217,7 +248,7 @@ function toISTWindow(date = new Date()) {
   const utcStart = new Date(Date.UTC(y, m, dd, 0, 0, 0, 0));
   const istStart = new Date(
     utcStart.getTime() -
-      (utcStart.getTimezoneOffset() + IST_OFFSET_MINUTES) * 60 * 1000
+    (utcStart.getTimezoneOffset() + IST_OFFSET_MINUTES) * 60 * 1000
   );
   const istEnd = new Date(istStart.getTime() + 24 * 60 * 60 * 1000);
   return { start: istStart, end: istEnd };
@@ -231,13 +262,13 @@ function istMonthRange(date = new Date()) {
   const firstUTC = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
   const start = new Date(
     firstUTC.getTime() -
-      (firstUTC.getTimezoneOffset() + IST_OFFSET_MINUTES) * 60 * 1000
+    (firstUTC.getTimezoneOffset() + IST_OFFSET_MINUTES) * 60 * 1000
   );
 
   const nextFirstUTC = new Date(Date.UTC(y, m + 1, 1, 0, 0, 0, 0));
   const end = new Date(
     nextFirstUTC.getTime() -
-      (nextFirstUTC.getTimezoneOffset() + IST_OFFSET_MINUTES) * 60 * 1000
+    (nextFirstUTC.getTimezoneOffset() + IST_OFFSET_MINUTES) * 60 * 1000
   );
 
   return { start, end };
@@ -251,7 +282,7 @@ function prevIstMonthRange(date = new Date()) {
   );
   const prevStart = new Date(
     prevStartUTC.getTime() -
-      (prevStartUTC.getTimezoneOffset() + IST_OFFSET_MINUTES) * 60 * 1000
+    (prevStartUTC.getTimezoneOffset() + IST_OFFSET_MINUTES) * 60 * 1000
   );
   return { start: prevStart, end: prevEnd };
 }
@@ -423,5 +454,6 @@ export {
   editEmployee,
   deleteEmployee,
   checkEmail,
-  getDashboardData,
+  getDashboardData, 
+  getTodaysBirthdays,
 };
