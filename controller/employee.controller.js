@@ -29,7 +29,7 @@ const createEmployee = async (req, res) => {
       !position ||
       !hire_date ||
       !hourly_rate ||
-      !employee_id || !birth_date || !profile_imageFile
+      !employee_id || !birth_date 
     ) {
       return res.status(400).json({ message: "All Fields are required" });
     }
@@ -162,7 +162,7 @@ const editEmployee = async (req, res) => {
       !hire_date ||
       !hourly_rate ||
       !employee_id ||
-      !role || !birth_date || profile_imageFile == ""
+      !role || !birth_date 
     ) {
       return res.status(400).json({ message: "All Fields are required" });
     }
@@ -454,6 +454,5 @@ export {
   editEmployee,
   deleteEmployee,
   checkEmail,
-  getDashboardData, 
-  getTodaysBirthdays,
+  getDashboardData, getTodaysBirthdays,
 };

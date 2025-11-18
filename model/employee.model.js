@@ -75,7 +75,7 @@ const employeeSchema = new mongoose.Schema(
     },
     profile_imageFile: {
       type: String,
-      required: [true, "Image is required"],
+      default: "",
     },
     hourly_rate: {
       type: Number,
