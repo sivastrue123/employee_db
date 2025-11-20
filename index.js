@@ -9,6 +9,7 @@ import cors from "cors";
 import pushRoutes from "./router/webPush.js";
 import worklogRoutes from "./router/worklog.routes.js";
 import amcRoutes from "./router/amcRouter.js"
+import assetRoutes from "./router/assetRouter.js";
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -24,7 +25,8 @@ app.use(
 );
 
 app.use("/api/employee", employeeRoutes);
-app.use("/api/attendance", attendanceRoutes);
+app.use("/api/employee", employeeRoutes);
+app.use("/api/asset", assetRoutes);
 app.use("/api/client", clientRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/worklog", worklogRoutes);
