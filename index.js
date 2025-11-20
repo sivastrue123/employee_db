@@ -25,7 +25,7 @@ app.use(
 );
 
 app.use("/api/employee", employeeRoutes);
-app.use("/api/employee", employeeRoutes);
+app.use("/api/attendance", attendanceRoutes);
 app.use("/api/asset", assetRoutes);
 app.use("/api/client", clientRoutes);
 app.use("/api/push", pushRoutes);
