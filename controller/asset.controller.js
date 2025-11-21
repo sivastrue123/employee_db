@@ -151,7 +151,7 @@ export const getAssetssearch = async (req, res) => {
 };
 
 export const getAssetsUser = async (req, res) => {
-    const id = req.params.id;
+      const id = req.query.id; 
     try {
         const list = await AssetInfo.find({ isDeleted: false, employeeId: id }).sort({ createdAt: -1 });
 

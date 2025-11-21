@@ -11,7 +11,8 @@ router.get("/", assetController.getAssets);
 router.get("/search", assetController.getAssetssearch);
 router.post("/", assetController.createAsset);
 router.put("/:id", assetController.updateAsset);
-router.get("/get/:id", assetController.getAssetsUser);
+router.get("/get", assetController.getAssetsUser);
+
 
 
 // OPTIONAL - get history for one asset
